@@ -7,3 +7,4 @@ pandas
 google-cloud-bigquery
 db-dtypes
 func_timeout
+vllm~=0.19.0
