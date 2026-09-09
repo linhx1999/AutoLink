@@ -2,6 +2,7 @@ import argparse
 import os
 import pandas as pd
 import json
+import data_layer
 import math
 from openai import OpenAI
 import itertools
@@ -152,11 +153,11 @@ def model_vote(instance_id, tied_clusters, args, schema, question):
 
     for c in candidates:
         scores[c["cid"]] = 0
-    if instance_id.startswith("bq"):
+    # if instance_id.startswith("bq"):
+    if data_layer.dialect(instance_id) == "bigquery":
         dialect = "BigQuery"
-    elif instance_id.startswith("ga"):
-        dialect = "BigQuery"
-    elif instance_id.startswith("sf"):
+    # elif instance_id.startswith("sf"):
+    elif data_layer.dialect(instance_id) == "snowflake":
         dialect = "snowflake"
     else:
         dialect = "SQLite"
@@ -228,7 +229,8 @@ def process_instance(name, args, lock):
     if isinstance(selected, list):
         with open(f"{args.log_path}/final_schema_prompts/{instance_id}.txt", "r") as f:
             schema = f.read()
-        with open("spider2_data.json", "r") as f:
+        # with open("spider2_data.json", "r") as f:
+        with open(data_layer.question_file(), "r") as f:
             spider2 = json.load(f)
         question = spider2[instance_id]["question"]
         selected = model_vote(instance_id, selected, args, schema, question)

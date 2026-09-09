@@ -1,22 +1,27 @@
 from sentence_transformers import SentenceTransformer
 import os
 import json
+import data_layer
 import numpy as np
 import faiss
 from tqdm import tqdm
 import time
 
 
-BIGQUERY_PATH = "resource/databases/bigquery"
-SNOWFLAKE_PATH = "resource/databases/snowflake"
-LOCALDB_PATH = "resource/databases/sqlite"
+# BIGQUERY_PATH = "resource/databases/bigquery"
+# SNOWFLAKE_PATH = "resource/databases/snowflake"
+# LOCALDB_PATH = "resource/databases/sqlite"
+BIGQUERY_PATH = data_layer.resource_path("databases/bigquery")
+SNOWFLAKE_PATH = data_layer.resource_path("databases/snowflake")
+LOCALDB_PATH = data_layer.resource_path("databases/sqlite")
 
 DBS_PATH = [BIGQUERY_PATH, SNOWFLAKE_PATH, LOCALDB_PATH]
 
 def embed_documents(input_file: str, embed_path: str, batch_size: int = 32):
     os.makedirs(embed_path, exist_ok=True)
 
-    model = SentenceTransformer("BAAI/bge-large-en-v1.5")
+    # model = SentenceTransformer("BAAI/bge-large-en-v1.5")
+    model = SentenceTransformer(os.environ.get("EMBEDDING_MODEL", "BAAI/bge-large-en-v1.5"), device=os.environ.get("EMBEDDING_DEVICE"))
 
     with open(input_file, "r", encoding="utf-8") as f:
         documents = json.load(f)
@@ -73,10 +78,13 @@ if __name__ == "__main__":
     for db in DBS_PATH:
         if "bigquery" in db:
             print("Embedding BigQuery documents...")
-            embed_documents(os.path.join("documents", "bigquery.json"), "embeddings/bigquery", batch_size=1024)
+            # embed_documents(os.path.join("documents", "bigquery.json"), "embeddings/bigquery", batch_size=1024)
+            embed_documents(data_layer.artifact_path("documents/bigquery.json"), data_layer.artifact_path("embeddings/bigquery"), batch_size=1024)
         if "snowflake" in db:
             print("Embedding Snowflake documents...")
-            embed_documents(os.path.join("documents", "snowflake.json"), "embeddings/snowflake", batch_size=1024)
+            # embed_documents(os.path.join("documents", "snowflake.json"), "embeddings/snowflake", batch_size=1024)
+            embed_documents(data_layer.artifact_path("documents/snowflake.json"), data_layer.artifact_path("embeddings/snowflake"), batch_size=1024)
         if "sqlite" in db:
             print("Embedding SQLite documents...")
-            embed_documents(os.path.join("documents", "localdb.json"), "embeddings/localdb", batch_size=1024)
+            # embed_documents(os.path.join("documents", "localdb.json"), "embeddings/localdb", batch_size=1024)
+            embed_documents(data_layer.artifact_path("documents/localdb.json"), data_layer.artifact_path("embeddings/localdb"), batch_size=1024)

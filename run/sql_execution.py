@@ -6,6 +6,7 @@ import os
 from google.cloud import bigquery
 import snowflake.connector
 import json
+import data_layer
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from func_timeout import func_timeout, FunctionTimedOut
@@ -37,16 +38,27 @@ def get_least_used_credential():
     return selected_credential
 
 def query_database_pandas(db_path, is_save, query, id, candidate_idx, log_path, task):
-    conn = sqlite3.connect(db_path)
-    df = pd.read_sql_query(query, conn)
+    # conn = sqlite3.connect(db_path)
+    # df = pd.read_sql_query(query, conn)
 
-    if df.empty:
-        with open(f"{log_path}/sql_gen/{task}_execution_error_{candidate_idx}/{id}.txt", "w", encoding="utf-8") as f:
-            f.write("No data found for the specified query.")
-    else:
-        if is_save:
+    # if df.empty:
+    #     with open(f"{log_path}/sql_gen/{task}_execution_error_{candidate_idx}/{id}.txt", "w", encoding="utf-8") as f:
+    #         f.write("No data found for the specified query.")
+    # else:
+    #     if is_save:
+    #         df.to_csv(f"{log_path}/sql_gen/{task}_execution_result_{candidate_idx}/{id}.csv", index=False)
+    # conn.close()
+    conn = data_layer.connect_sqlite(db_path)
+    try:
+        df = pd.read_sql_query(query, conn)
+        if df.empty:
+            with open(f"{log_path}/sql_gen/{task}_execution_error_{candidate_idx}/{id}.txt", "w", encoding="utf-8") as f:
+                f.write("No data found for the specified query.")
+        elif is_save:
             df.to_csv(f"{log_path}/sql_gen/{task}_execution_result_{candidate_idx}/{id}.csv", index=False)
-    conn.close()
+    finally:
+        conn.close()
+
 
 def snowflake_query_data(sql_query, is_save, id, candidate_idx, log_path, task):
     try:
@@ -128,7 +140,8 @@ def execute(sql_query, id, db, candidate_idx, log_path, task):
     result_file = f"{log_path}/sql_gen/{task}_execution_result_{candidate_idx}/{id}.csv"
     error_file = f"{log_path}/sql_gen/{task}_execution_error_{candidate_idx}/{id}.txt"
 
-    if id.startswith('bq') or id.startswith('ga'):
+    # if id.startswith('bq') or id.startswith('ga'):
+    if data_layer.dialect(id) == "bigquery":
         try:
             func_timeout(10 * 60, bigquery_query_data, 
                          args=(sql_query, is_save, id, candidate_idx, log_path, task))
@@ -141,11 +154,14 @@ def execute(sql_query, id, db, candidate_idx, log_path, task):
                 f.write(f"Execution error: {str(e)}")
             print(f"Error executing {id}")
 
-    elif id.startswith('sf'):
+    # elif id.startswith('sf'):
+    elif data_layer.dialect(id) == "snowflake":
         snowflake_query_data(sql_query, is_save, id, candidate_idx, log_path, task)
         
-    elif id.startswith('local'):
-        local_path = f'resource/databases/spider2-localdb/{db}.sqlite'
+    # elif id.startswith('local'):
+    elif data_layer.dialect(id) == "sqlite":
+        # local_path = f'resource/databases/spider2-localdb/{db}.sqlite'
+        local_path = data_layer.sqlite_path(db)
         try:
             func_timeout(10 * 60, query_database_pandas,
                          args=(local_path, is_save, sql_query, id, candidate_idx, log_path, task))

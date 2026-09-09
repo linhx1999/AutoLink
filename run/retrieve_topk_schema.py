@@ -1,5 +1,6 @@
 import os
 import json
+import data_layer
 import multiprocessing as mp
 from tqdm import tqdm
 import faiss
@@ -280,7 +281,8 @@ def retrieve_additional(instance_id: str, question: str, additional_k: int, log_
     cache_dir = os.path.join(log_dir, "cache")
     status_dir = os.path.join(log_dir, "status")
     
-    with open("spider2_data.json", "r", encoding="utf-8") as f:
+    # with open("spider2_data.json", "r", encoding="utf-8") as f:
+    with open(data_layer.question_file(), "r", encoding="utf-8") as f:
         spider2_data = json.load(f)
     
     if instance_id not in spider2_data:
@@ -318,7 +320,8 @@ def retrieve_additional(instance_id: str, question: str, additional_k: int, log_
 def retrieve(log_dir: str, top_n: int = 50):
     os.makedirs(log_dir, exist_ok=True)
 
-    with open("spider2_data.json", "r", encoding="utf-8") as f:
+    # with open("spider2_data.json", "r", encoding="utf-8") as f:
+    with open(data_layer.question_file(), "r", encoding="utf-8") as f:
         spider2_data = json.load(f)
 
     instance_ids = list(spider2_data.keys())

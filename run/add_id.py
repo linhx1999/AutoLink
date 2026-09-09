@@ -1,10 +1,12 @@
 import json
+import data_layer
 import os
 import argparse
 import glob
 
 def fill_rule(initial_candidates):
-    with open("spider2_data.json", "r", encoding="utf-8") as f:
+    # with open("spider2_data.json", "r", encoding="utf-8") as f:
+    with open(data_layer.question_file(), "r", encoding="utf-8") as f:
             spider2_data = json.load(f)
 
     final_schemas =  {}
@@ -20,9 +22,11 @@ def fill_rule(initial_candidates):
         table_candidates = schema_info["table_candidates"]
         column_candidates = schema_info["column_candidates"]
         
-        if instance_id.startswith("bq") or instance_id.startswith("ga"):
+        # if instance_id.startswith("bq") or instance_id.startswith("ga"):
+        if data_layer.dialect(instance_id) == "bigquery":
 
-            db_path = f"resource/databases/bigquery/{db_name}"
+            # db_path: str = f"resource/databases/bigquery/{db_name}"
+            db_path = data_layer.resource_path(f"databases/bigquery/{db_name}")
             json_files = glob.glob(os.path.join(db_path, "**", "*.json"), recursive=True)
             
             for table_candidate, column_candidate in zip(table_candidates, column_candidates):
@@ -59,12 +63,14 @@ def fill_rule(initial_candidates):
                             filled_table_candidates.append(table_candidate)
                             
                             
-        elif instance_id.startswith("sf"):
+        # elif instance_id.startswith("sf"):
+        elif data_layer.dialect(instance_id) == "snowflake":
             for table_candidate, column_candidate in zip(table_candidates, column_candidates):
                 filled_column_candidates.append(column_candidate)
                 filled_table_candidates.append(table_candidate)
             
-        elif instance_id.startswith("local"):
+        # elif instance_id.startswith("local"):
+        elif data_layer.dialect(instance_id) == "sqlite":
             for table_candidate, column_candidate in zip(table_candidates, column_candidates):
                 filled_column_candidates.append(column_candidate)
                 filled_table_candidates.append(table_candidate)
@@ -97,13 +103,19 @@ def add_pre_rule(log_path):
             "column_values": schema_info["column_values"].copy(),
             "descriptions": schema_info["descriptions"].copy(),
         }
-        
-        if instance_id.startswith("bq") or instance_id.startswith("ga"):
-            embedding_path = "embeddings/bigquery"
-        elif instance_id.startswith("sf"):
-            embedding_path = "embeddings/snowflake"
-        elif instance_id.startswith("local"):
-            embedding_path = "embeddings/localdb"
+
+        # if instance_id.startswith("bq") or instance_id.startswith("ga"):
+        #     embedding_path = "embeddings/bigquery"
+        # elif instance_id.startswith("sf"):
+        #     embedding_path = "embeddings/snowflake"
+        # elif instance_id.startswith("local"):
+        #     embedding_path = "embeddings/localdb"     
+        if data_layer.dialect(instance_id) == "bigquery":
+            embedding_path = data_layer.artifact_path("embeddings/bigquery")
+        elif data_layer.dialect(instance_id) == "snowflake":
+            embedding_path = data_layer.artifact_path("embeddings/snowflake")
+        elif data_layer.dialect(instance_id) == "sqlite":
+            embedding_path = data_layer.artifact_path("embeddings/localdb")
         else:
             raise ValueError(f"Unknown instance_id: {instance_id}")
         

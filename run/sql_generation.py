@@ -1,5 +1,6 @@
 import os
 import json
+import data_layer
 import time
 import threading
 import argparse
@@ -38,13 +39,16 @@ class SQLGenerator:
     def generate(self, instance_id: str, info: Dict, schema: str) -> Dict:
         question = info["question"]
 
-        if instance_id.startswith("bq"):
+        # if instance_id.startswith("bq"):
+        if data_layer.dialect(instance_id) == "bigquery":
             sql_type = BIGQUERY_DIALECT_OPTIMIZATION_SQL_GEN
             dialect = "BigQuery"
-        elif instance_id.startswith("sf"):
+        # elif instance_id.startswith("sf"):
+        elif data_layer.dialect(instance_id) == "snowflake":
             sql_type = SNOWFLAKE_DIALECT_OPTIMIZATION_SQL_GEN
             dialect = "SnowFlake"
-        elif instance_id.startswith("local"):
+        # elif instance_id.startswith("local"):
+        elif data_layer.dialect(instance_id) == "sqlite":
             sql_type = SQLITE_DIALECT_OPTIMIZATION_SQL_GEN
             dialect = "SQLite"
         else:

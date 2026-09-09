@@ -23,8 +23,10 @@ class ModelManager:
     
     def load_model(self, model_path: str = None, device: str = "cuda:0"):
         if model_path is None:
-            model_path = "BAAI/bge-large-en-v1.5"
+            # model_path = "BAAI/bge-large-en-v1.5"
+            model_path = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-large-en-v1.5")
                     
+        device = os.environ.get("EMBEDDING_DEVICE", device)
         with self.model_lock:
             if self.model is None or self.device != device:
                 print(f"Loading model from {model_path} to {device}")

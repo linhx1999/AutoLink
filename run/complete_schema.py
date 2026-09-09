@@ -1,5 +1,6 @@
 import os
 import json
+import data_layer
 import multiprocessing as mp
 from retrieve_topk_schema import get_next_k_results
 from utils import *
@@ -74,14 +75,16 @@ def restore_instance_state(instance_id: str, log_path: str):
         shutil.copy2(backup_status_file, status_file)           
 
 def thread_safe_sql_execution(instance_id, sql, db_name):
-    if instance_id.startswith("local"):
+    # if instance_id.startswith("local"):
+    if data_layer.dialect(instance_id) == "sqlite":
         with sqlite_lock:
             return sql_execution(instance_id, sql, db_name)
     else:
         return sql_execution(instance_id, sql, db_name)
 
 def sql_execution(instance_id, sql, db_name):
-    if instance_id.startswith("bq") or instance_id.startswith("ga"):
+    # if instance_id.startswith("bq") or instance_id.startswith("ga"):
+    if data_layer.dialect(instance_id) == "bigquery":
         used_credential = []
         bigquery_credential_path = get_least_used_credential()
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = bigquery_credential_path
@@ -122,7 +125,8 @@ def sql_execution(instance_id, sql, db_name):
                         else:
                             return "error", f"Error occurred while fetching data: {e}"
             return "error", f"Error occurred while fetching data: {e}"
-    elif instance_id.startswith("sf"):
+    # elif instance_id.startswith("sf"):
+    elif data_layer.dialect(instance_id) == "snowflake":
         snowflake_credential = json.load(open("snowflake_credential/snowflake_credential.json"))
         conn = snowflake.connector.connect(**snowflake_credential)
         cursor = conn.cursor()
@@ -140,9 +144,12 @@ def sql_execution(instance_id, sql, db_name):
         finally:
             cursor.close()
             conn.close()
-    elif instance_id.startswith("local"):
-        db_path = f"resource/databases/spider2-localdb/{db_name}.sqlite"
-        conn = sqlite3.connect(db_path)
+    # elif instance_id.startswith("local"):
+    #     db_path = f"resource/databases/spider2-localdb/{db_name}.sqlite"
+    #     conn = sqlite3.connect(db_path)
+    elif data_layer.dialect(instance_id) == "sqlite":
+        db_path = data_layer.sqlite_path(db_name)
+        conn = data_layer.connect_sqlite(db_path)
         try:
             df = pd.read_sql_query(sql, conn)
             if df.empty:
@@ -201,33 +208,42 @@ def process_instance_batch(batch_instances, log_path):
 
         embed_path = determine_embedding_path(instance_id)
 
-        if instance_id.startswith("bq") or instance_id.startswith("ga"):
-            documents_path = "documents/bigquery.json"
+        # if instance_id.startswith("bq") or instance_id.startswith("ga"):
+        #     documents_path = "documents/bigquery.json"
+        if data_layer.dialect(instance_id) == "bigquery":
+            documents_path = data_layer.artifact_path("documents/bigquery.json")
             sql_type = BIGQUERY
             sql_optimization = BIGQUERY_DIALECT_OPTIMIZATION
-        elif instance_id.startswith("sf"):
-            documents_path = "documents/snowflake.json"
+        # elif instance_id.startswith("sf"):
+        #     documents_path = "documents/snowflake.json"
+        elif data_layer.dialect(instance_id) == "snowflake":
+            documents_path = data_layer.artifact_path("documents/snowflake.json")
             sql_type = SNOWFLAKE
             sql_optimization = SNOWFLAKE_DIALECT_OPTIMIZATION
-        elif instance_id.startswith("local"):
-            documents_path = "documents/localdb.json"
+        # elif instance_id.startswith("local"):
+        #     documents_path = "documents/localdb.json"
+        elif data_layer.dialect(instance_id) == "sqlite":
+            documents_path = data_layer.artifact_path("documents/localdb.json")
             sql_type = SQLITE
             sql_optimization = SQLITE_DIALECT_OPTIMIZATION
 
         with open(documents_path, "r", encoding="utf-8") as f:
             documents = json.load(f)
 
-        with open("spider2_data.json", "r", encoding="utf-8") as f:
+        # with open("spider2_data.json", "r", encoding="utf-8") as f:
+        with open(data_layer.question_file(), "r", encoding="utf-8") as f:
             spider2_data = json.load(f)
         
         if instance_id not in spider2_data:
-            raise ValueError(f"Instance ID {instance_id} not found in spider2_data.json")
+            # raise ValueError(f"Instance ID {instance_id} not found in spider2_data.json")
+            raise ValueError(f"Instance ID {instance_id} not found in the configured question file")
         
         konwledge_name = spider2_data[instance_id].get("external_knowledge", None)
         knowledge_data = ""
         
         if konwledge_name:
-            knowledge_path = os.path.join("resource/documents", konwledge_name)
+            # knowledge_path = os.path.join("resource/documents", konwledge_name)
+            knowledge_path = data_layer.resource_path("documents/" + konwledge_name)
             try:
                 with open(knowledge_path, "r", encoding="utf-8") as f:
                     knowledge_data = f.read()
@@ -428,7 +444,8 @@ def complete_schema(log_path, num_threads=3):
     
     with open(os.path.join(log_path, "initial_candidates.json"), "r", encoding="utf-8") as f:
         initial_candidates = json.load(f)
-    with open("spider2_data.json", "r", encoding="utf-8") as f:
+    # with open("spider2_data.json", "r", encoding="utf-8") as f:
+    with open(data_layer.question_file(), "r", encoding="utf-8") as f:
         spider2_data = json.load(f)
     
     instance_ids = list(spider2_data.keys())

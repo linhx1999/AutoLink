@@ -1,16 +1,18 @@
 import os
 import json
 import re
+import data_layer
 
 def determine_embedding_path(instance_id: str) -> str:
-    base_path = "embeddings"
-    if instance_id.startswith("bq") or instance_id.startswith("ga"):
-        embed_path = os.path.join(base_path, "bigquery")
-    elif instance_id.startswith("sf"):
-        embed_path = os.path.join(base_path, "snowflake")
-    elif instance_id.startswith("local"):
-        embed_path = os.path.join(base_path, "localdb")
-    return embed_path
+    # base_path = "embeddings"
+    # if instance_id.startswith("bq") or instance_id.startswith("ga"):
+    #     embed_path = os.path.join(base_path, "bigquery")
+    # elif instance_id.startswith("sf"):
+    #     embed_path = os.path.join(base_path, "snowflake")
+    # elif instance_id.startswith("local"):
+    #     embed_path = os.path.join(base_path, "localdb")
+    # return embed_path
+    return data_layer.embedding_path(instance_id)
 
 def get_subdir(dir_path):
     subdirs = [

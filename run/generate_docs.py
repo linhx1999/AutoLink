@@ -1,15 +1,21 @@
 import os
 import json
+import data_layer
 from utils import *
 import time
 
-BIGQUERY_PATH = "resource/databases/bigquery"
-SNOWFLAKE_PATH = "resource/databases/snowflake"
-LOCALDB_PATH = "resource/databases/sqlite"
+# BIGQUERY_PATH = "resource/databases/bigquery"
+# SNOWFLAKE_PATH = "resource/databases/snowflake"
+# LOCALDB_PATH = "resource/databases/sqlite"
+BIGQUERY_PATH = data_layer.resource_path("databases/bigquery")
+SNOWFLAKE_PATH = data_layer.resource_path("databases/snowflake")
+LOCALDB_PATH = data_layer.resource_path("databases/sqlite")
 
 DBS_PATH = [BIGQUERY_PATH, SNOWFLAKE_PATH, LOCALDB_PATH]
 
-def generate_documents(db: str, output_path: str = "documents"):
+# def generate_documents(db: str, output_path: str = "documents"):
+def generate_documents(db: str, output_path: str = None):
+    output_path = output_path or data_layer.artifact_path("documents")
     if "bigquery" in db:
         output_file = "bigquery.json"
     elif "snowflake" in db:

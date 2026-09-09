@@ -1,5 +1,6 @@
 import os
 import json
+import data_layer
 import time
 import threading
 import argparse
@@ -62,7 +63,8 @@ def get_least_used_credential():
     return selected_credential
 
 def query_sqlite(db_name, sql):
-    conn = sqlite3.connect(f"resource/databases/spider2-localdb/{db_name}.sqlite")
+    # conn = sqlite3.connect(f"resource/databases/spider2-localdb/{db_name}.sqlite")
+    conn = data_layer.connect_sqlite(data_layer.sqlite_path(db_name))
     try:
         df = pd.read_sql_query(sql, conn)
         if df.empty:
@@ -143,7 +145,8 @@ def query_bigquery(sql, instance_id):
 
 
 def execute_sql(instance_id, sql, db_name):
-    if instance_id.startswith("bq") or instance_id.startswith("ga"):
+    # if instance_id.startswith("bq") or instance_id.startswith("ga"):
+    if data_layer.dialect(instance_id) == "bigquery":
         try:
             state, result = func_timeout(10 * 60, query_bigquery,
                          args=(sql, instance_id))
@@ -152,10 +155,12 @@ def execute_sql(instance_id, sql, db_name):
             state = "error"
             result = "Execute timeout: exceed 10min"
 
-    elif instance_id.startswith("sf"):
+    # elif instance_id.startswith("sf"):
+    elif data_layer.dialect(instance_id) == "snowflake":
         state, result = query_snowflake(sql)
 
-    elif instance_id.startswith("local"):
+    # elif instance_id.startswith("local"):
+    elif data_layer.dialect(instance_id) == "sqlite":
         try:
             state, result = func_timeout(10 * 60, query_sqlite,
                          args=(db_name, sql))
@@ -166,7 +171,8 @@ def execute_sql(instance_id, sql, db_name):
     return state, result
 
 def thread_safe_sql_execution(instance_id, sql, db_name):
-    if instance_id.startswith("local"):
+    # if instance_id.startswith("local"):
+    if data_layer.dialect(instance_id) == "sqlite":
         with sqlite_lock:
             return execute_sql(instance_id, sql, db_name)
     else:
@@ -185,10 +191,12 @@ class SQLReviser:
         question = info["question"]
         db_name = info["db_name"]
 
-        if instance_id.startswith("bq"):
+        # if instance_id.startswith("bq"):
+        if data_layer.dialect(instance_id) == "bigquery":
             dialect = "BigQuery"
             sql_type = BIGQUERY_DIALECT_OPTIMIZATION_SQL_GEN
-        elif instance_id.startswith("sf"):
+        # elif instance_id.startswith("sf"):
+        elif data_layer.dialect(instance_id) == "snowflake":
             dialect = "SnowFlake"
             sql_type = SNOWFLAKE_DIALECT_OPTIMIZATION_SQL_GEN
         else:
