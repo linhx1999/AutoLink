@@ -50,6 +50,39 @@ class ExperimentFailure(BaseException):
     """Abort native unlimited retries; do not score an incomplete stage."""
 
 
+class OutputTokenLimit(ExperimentFailure):
+    """Terminal per-question generation failure, not an infrastructure outage."""
+
+    def __init__(self, call_record: Path, max_tokens: int, usage: dict | None):
+        super().__init__("Model output reached max_tokens")
+        self.call_record = str(call_record.resolve())
+        self.max_tokens = max_tokens
+        self.usage = usage
+
+
+def question_error(output: Path, instance_id: str) -> dict | None:
+    path = output / "errors" / (instance_id + ".json")
+    return data.read_json(path) if path.exists() else None
+
+
+def mark_output_limit(
+    output: Path, stage: str, key: str, error: OutputTokenLimit
+) -> None:
+    instance_id = key.split("/", 1)[0]
+    data.write_json(
+        output / "errors" / (instance_id + ".json"),
+        {
+            "status": "error",
+            "error_type": "output_token_limit",
+            "instance_id": instance_id,
+            "stage": stage,
+            "unit": key,
+            "call_record": error.call_record,
+        },
+    )
+    print("Question failed:", instance_id, "output_token_limit; continuing", flush=True)
+
+
 class ModelClient:
     """Experiment-only request settings and accounting; no global SDK mutation."""
 
@@ -104,6 +137,10 @@ class ModelClient:
                     "seconds": time.monotonic() - started,
                 },
             )
+            if response.choices[0].finish_reason == "length":
+                raise OutputTokenLimit(
+                    record, request["max_tokens"], response.model_dump().get("usage")
+                )
             if not msg.content:
                 raise ExperimentFailure("No final content; stage remains incomplete")
             return response
@@ -129,6 +166,9 @@ def run_unit(
     outcomes: list[Path] | None = None,
 ) -> None:
     """Resume only fully persisted units; replay a partially written unit."""
+    if question_error(output, key.split("/", 1)[0]):
+        print("Resume: skip failed question", key, flush=True)
+        return
     outcomes = outcomes or []
     checkpoint = (
         output
@@ -152,7 +192,11 @@ def run_unit(
     # These are outputs owned solely by this unit, never input datasets.
     for path in required + outcomes:
         path.unlink(missing_ok=True)
-    operation()
+    try:
+        operation()
+    except OutputTokenLimit as exc:
+        mark_output_limit(output, stage, key, exc)
+        return
     if any(not path.is_file() for path in required):
         raise ExperimentFailure("Incomplete unit artifacts: " + stage + "/" + key)
     completed_outcomes = [path for path in outcomes if path.is_file()]
@@ -174,6 +218,15 @@ def run_unit(
 def run_stage(stage: str, output: Path) -> None:
     """Dispatch original method functions; all data access is through data_layer."""
     questions = data.load_questions()
+    if stage in ("explore", "generate", "execute", "revise", "select"):
+        questions = {
+            iid: item
+            for iid, item in questions.items()
+            if not question_error(output, iid)
+        }
+        if not questions:
+            print("No pending non-terminal questions in", stage, flush=True)
+            return
     log = str(output / "logs")
     task = "experiment"
     count = int(os.environ["NUM_CANDIDATES"])
@@ -297,7 +350,8 @@ def run_stage(stage: str, output: Path) -> None:
                     ],
                 )
         for cid in range(count):
-            module.sql_clean(log, task, cid)
+            if Path(log, "sql_gen", f"{task}_sql_generation_{cid}").is_dir():
+                module.sql_clean(log, task, cid)
     elif stage == "execute":
         import sql_execution as module
 
@@ -394,12 +448,21 @@ def run_stage(stage: str, output: Path) -> None:
             p = Path(
                 log, "sql_selection/final", identity["instance_id"], "selected.sql"
             )
-            sql = p.read_text().strip()
-            if not sql:
+            failure = question_error(output, identity["instance_id"])
+            sql = "" if failure else p.read_text().strip()
+            if not failure and not sql:
                 raise ExperimentFailure(
                     "Missing prediction: " + identity["instance_id"]
                 )
-            rows.append({**identity, "pred": sql})
+            row = {
+                **identity,
+                "pred": sql,
+                "status": "error" if failure else "complete",
+            }
+            if failure:
+                row["error_type"] = failure["error_type"]
+                row["error_stage"] = failure["stage"]
+            rows.append(row)
         data.export_predictions(
             data.runtime()["dataset"],
             output,

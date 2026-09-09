@@ -483,8 +483,13 @@ def export_predictions(
             row.get(k) != identity[k] for k in ("index", "question_id", "db_id")
         ):
             raise ValueError("Prediction identity/order mismatch")
-        if not isinstance(row.get("pred"), str) or not row["pred"].strip():
-            raise ValueError("Empty prediction is not a completed result")
+        if not isinstance(row.get("pred"), str):
+            raise ValueError("Prediction must be a string")
+        if not row["pred"].strip() and not (
+            row.get("status") == "error"
+            and row.get("error_type") == "output_token_limit"
+        ):
+            raise ValueError("Empty prediction requires an explicit terminal error")
         if not re.fullmatch(r"[A-Za-z0-9_-]+", identity["instance_id"]):
             raise ValueError("Unsafe submission filename")
         ordered.append(row)

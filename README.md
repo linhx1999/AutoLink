@@ -154,7 +154,7 @@ OUTPUT_DIR=outputs/spider2_smoke bash run_spider2_lite_sqlite_qwen3_8b.sh --limi
 
 产物位于 `outputs/`：`data/` 保存白名单在线数据、规范化元数据和运行配置；`documents/`、`embeddings/` 保存可复用产物；`logs/` 保存原生中间结果；`calls/` 保存无密钥的请求响应；`stages/` 为完成标记；最终 `predictions.json` 保留原始question_id、题目顺序与预测SQL。`manifest.json` 校验配置、输入、源码和关键依赖版本，变化时要求新输出目录，且通过文件锁防止同一实验并行覆盖。
 
-执行与探索、修订均通过数据层的只读SQLite连接，仅可访问登记数据库并具有SQL时间限制。保留原方法把空结果交给修订的行为。模型失败或无最终内容会中止阶段，不把缺失尾部评分为错误；仍需后续处理失败再完成实验。未将模型响应当作正确性标签，当前入口不自动计算EX。
+执行与探索、修订均通过数据层的只读SQLite连接，仅可访问登记数据库并具有SQL时间限制。保留原方法把空结果交给修订的行为。模型输出超限（`finish_reason="length"`）在单题处理最外层捕获：记录 `errors/<instance_id>.json`，该题最终 SQL 置空，跳过该题剩余处理并继续其他题；续跑也跳过这些已标记题。错误记录关联 `calls/` 中的响应、时间和 token 用量。网络/服务异常或非超限的无最终内容仍中止阶段，保留续跑能力，不把未处理尾部评分为错误。未将模型响应当作正确性标签，当前入口不自动计算EX。
 
 原 `scripts/minidev/experiment.py` 和 `stage.py` 已移除；不再复制源码到输出目录，不再通过替换 `sqlite3.connect` 注入数据访问。数据读取、路径与方言适配已接入原生程序。
 
@@ -190,7 +190,7 @@ bash run_spider2_lite_sqlite_qwen3_8b.sh
 | BIRD Mini-Dev | `predict_dev.json`，按输入顺序编号，值为 `SQL\t----- bird -----\tdb_id` | 相邻 `mini_dev/evaluation/` 官方评估器 |
 | Spider2-Lite SQLite | `submission_sql/<instance_id>.sql`，平铺目录，包含全部目标题目 | `Spider2/spider2-lite/evaluation_suite/evaluate.py` |
 
-导出前检查ID、数据库、顺序与完整性；执行失败的已完成候选仍提交其SQL，不仅导出成功题。缺失/重复预测拒绝导出。`export_manifest.json` 记录格式、题目范围与文件哈希。使用官方评估器前应确认提交覆盖全部目标题目；官方脚本不会读取该清单，而是按提交交集评分。
+导出前检查ID、数据库、顺序与完整性；执行失败的已完成候选仍提交其SQL，不仅导出成功题。输出超限题保留题目 ID 并提交空 SQL（BIRD 保留数据库分隔符，Spider2 保留空 `.sql` 文件），计入评估范围；其他缺失/重复预测拒绝导出。`export_manifest.json` 记录格式、题目范围与文件哈希。使用官方评估器前应确认提交覆盖全部目标题目；官方脚本不会读取该清单，而是按提交交集评分。
 
 ```bash
 # 从工作区根目录进入官方评估目录
