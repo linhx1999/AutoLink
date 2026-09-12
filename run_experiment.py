@@ -38,6 +38,7 @@ ENV_DEFAULTS = {
     "STAGE_TIMEOUT": "518400",
     "MAX_API_CALLS_PER_STAGE": "30000",
     "TEMPERATURE": "0",
+    "SQL_GENERATION_TEMPERATURE": "1.0",
     "SEED": "42",
     "EMBEDDING_MODEL": "BAAI/bge-large-en-v1.5",
     "EMBEDDING_DEVICE": "cpu",
@@ -113,7 +114,13 @@ class ModelClient:
             )
         request.update(
             max_tokens=int(os.environ["MAX_TOKENS"]),
-            temperature=float(os.environ["TEMPERATURE"]),
+            temperature=float(
+                os.environ[
+                    "SQL_GENERATION_TEMPERATURE"
+                    if self.stage == "generate"
+                    else "TEMPERATURE"
+                ]
+            ),
             seed=int(os.environ["SEED"]),
         )
         started = time.monotonic()

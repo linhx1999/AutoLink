@@ -150,7 +150,7 @@ OUTPUT_DIR=outputs/spider2_smoke bash run_spider2_lite_sqlite_qwen3_8b.sh --limi
 
 默认执行 `--stage all`（完整实验及自动续跑）；`validate` 仅检查数据；`prepare` 生成在线数据、元数据和字段文档，不下载模型、不建向量索引；`link` 继续构建索引并完成Schema探索；`sql` 要求同输出目录已有完整link阶段，再执行候选生成、执行、修订与投票；`all` 执行完整流程。`--check`、`--prepare-only` 分别等价于 validate、prepare；不再提供 `--run` 开关。默认 `limit=0`，即读取当前数据集全量样本，脚本不固定135或500。需要小样本时显式传 `--limit 2`（也兼容环境变量 `LIMIT`），并指定独立 `OUTPUT_DIR`；不能把子集结果视为全量。
 
-独立脚本配置模型、接口、数据路径和输出目录，并显式列出 `TEMPERATURE=0`、`MAX_TOKENS=16384`；其他参数使用统一入口默认值，可按需通过环境变量覆盖。脚本使用现有环境，不创建或安装环境。Qwen3-8B端点默认为 `http://127.0.0.1:8000/v1`；模型需另行启动。实验脚本不设置 `TOP_N`；统一入口默认使用与原生命令行 `--top_n` 一致的100列（底层 `retrieve()` 函数默认50不是命令行默认值）。其余默认5候选、16384输出token、temperature=0、seed=42；客户端不再传入 `top_p` 或采样 `top_k`，保留默认思考；原探索10轮、修订5轮。两份实验脚本通过 `EMBEDDING_DEVICE=cuda:0` 注入BGE的GPU设备；可用 `EMBEDDING_DEVICE=cuda:1 bash run_bird_minidev_qwen3_8b.sh` 指定其他可见GPU，编号相对于 `CUDA_VISIBLE_DEVICES`。可通过 `EMBEDDING_MODEL` 覆盖嵌入模型。直接调用Python入口且未设置设备时仍回退到CPU。统一入口顺序调度原生函数以明确传播阶段错误，不改变提示词或新增模式修复算法。
+独立脚本配置模型、接口、数据路径和输出目录，并显式列出 `TEMPERATURE=0`、`SQL_GENERATION_TEMPERATURE=1.0`、`MAX_TOKENS=16384`；其他参数使用统一入口默认值，可按需通过环境变量覆盖。脚本使用现有环境，不创建或安装环境。Qwen3-8B端点默认为 `http://127.0.0.1:8000/v1`；模型需另行启动。实验脚本按论文主实验设置初始检索数量：BIRD `TOP_N=30`，Spider2 `TOP_N=100`，均支持环境变量覆盖。直接调用Python入口时 `TOP_N` 默认仍为100。补充检索数量固定为3。其余默认5候选、16384输出token、seed=42；SQL候选生成阶段使用 `SQL_GENERATION_TEMPERATURE=1.0`，探索、修订和选择阶段使用 `TEMPERATURE=0`；客户端不再传入 `top_p` 或采样 `top_k`，保留默认思考；原探索10轮、修订5轮。两份实验脚本默认通过 `EMBEDDING_DEVICE=cpu` 让BGE使用CPU；可用 `EMBEDDING_DEVICE=cuda:1 bash run_bird_minidev_qwen3_8b.sh` 显式指定GPU，编号相对于 `CUDA_VISIBLE_DEVICES`。可通过 `EMBEDDING_MODEL` 覆盖嵌入模型。直接调用Python入口且未设置设备时仍回退到CPU。统一入口顺序调度原生函数以明确传播阶段错误，不改变提示词或新增模式修复算法。
 
 产物位于 `outputs/`：`data/` 保存白名单在线数据、规范化元数据和运行配置；`documents/`、`embeddings/` 保存可复用产物；`logs/` 保存原生中间结果；`calls/` 保存无密钥的请求响应；`stages/` 为完成标记；最终 `predictions.json` 保留原始question_id、题目顺序与预测SQL。`manifest.json` 校验配置、输入、源码和关键依赖版本，变化时要求新输出目录，且通过文件锁防止同一实验并行覆盖。
 
@@ -212,9 +212,10 @@ Spider2直接使用官方 `evaluate.py --mode sql`，不再提供额外评估包
 两份推理脚本显式配置：
 
 ```bash
-export TEMPERATURE="${TEMPERATURE:-0}"
+export TEMPERATURE="${TEMPERATURE:-0}"       # 探索、修订和选择
+export SQL_GENERATION_TEMPERATURE="${SQL_GENERATION_TEMPERATURE:-1.0}"
 export MAX_TOKENS="${MAX_TOKENS:-16384}"        # 单次生成上限，包含思考token
-export EMBEDDING_DEVICE="${EMBEDDING_DEVICE:-cuda:0}"
+export EMBEDDING_DEVICE="${EMBEDDING_DEVICE:-cpu}"
 ```
 
 实验脚本仅设置客户端生成上限 `max_tokens=16384`，不设置或要求服务端返回 `max_model_len`。总上下文上限只由模型启动脚本控制；当前启动配置仍为32768。模型预检仅核对服务模型名，已完成全部模型阶段的续跑不要求服务仍在线。修改生成预算后需使用新的实验输出目录。

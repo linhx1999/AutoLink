@@ -62,6 +62,20 @@ class OutputLimitTests(unittest.TestCase):
         )
         return c
 
+    def test_stage_temperatures_reach_model_request(self):
+        for stage, temperature in [
+            ("generate", 1.0),
+            ("explore", 0.0),
+            ("revise", 0.0),
+            ("select", 0.0),
+        ]:
+            with self.subTest(stage=stage):
+                c = self.client([response()])
+                c.stage = stage
+                c.create(model="test", messages=[])
+                request = c.api.chat.completions.create.call_args.kwargs
+                self.assertEqual(request["temperature"], temperature)
+
     def test_length_is_terminal_even_with_partial_content(self):
         for content in ["", "SELECT incomplete"]:
             c = self.client([response("length", content)])
