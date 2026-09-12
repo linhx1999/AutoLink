@@ -450,7 +450,7 @@ def connect_sqlite(
 
     conn.set_authorizer(authorize)
     deadline = time.monotonic() + (
-        timeout if timeout is not None else float(os.environ.get("SQL_TIMEOUT", "30"))
+        timeout if timeout is not None else float(os.environ.get("SQL_TIMEOUT", "60"))
     )
     conn.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
     return conn

@@ -33,13 +33,11 @@ ENV_DEFAULTS = {
     "TOP_N": "100",
     "NUM_CANDIDATES": "5",
     "MAX_TOKENS": "16384",
-    "API_TIMEOUT": "600",
-    "SQL_TIMEOUT": "30",
-    "STAGE_TIMEOUT": "43200",
+    "API_TIMEOUT": "1200",
+    "SQL_TIMEOUT": "60",
+    "STAGE_TIMEOUT": "518400",
     "MAX_API_CALLS_PER_STAGE": "30000",
     "TEMPERATURE": "0",
-    "TOP_P": "0.95",
-    "TOP_K": "20",
     "SEED": "42",
     "EMBEDDING_MODEL": "BAAI/bge-large-en-v1.5",
     "EMBEDDING_DEVICE": "cpu",
@@ -116,10 +114,8 @@ class ModelClient:
         request.update(
             max_tokens=int(os.environ["MAX_TOKENS"]),
             temperature=float(os.environ["TEMPERATURE"]),
-            top_p=float(os.environ["TOP_P"]),
             seed=int(os.environ["SEED"]),
         )
-        request["extra_body"] = {"top_k": int(os.environ["TOP_K"])}
         started = time.monotonic()
         record = folder / f"{self.stage}-{time.time_ns()}.json"
         data.write_json(record, {"status": "started", "request": request})

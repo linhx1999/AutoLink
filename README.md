@@ -150,7 +150,7 @@ OUTPUT_DIR=outputs/spider2_smoke bash run_spider2_lite_sqlite_qwen3_8b.sh --limi
 
 默认执行 `--stage all`（完整实验及自动续跑）；`validate` 仅检查数据；`prepare` 生成在线数据、元数据和字段文档，不下载模型、不建向量索引；`link` 继续构建索引并完成Schema探索；`sql` 要求同输出目录已有完整link阶段，再执行候选生成、执行、修订与投票；`all` 执行完整流程。`--check`、`--prepare-only` 分别等价于 validate、prepare；不再提供 `--run` 开关。默认 `limit=0`，即读取当前数据集全量样本，脚本不固定135或500。需要小样本时显式传 `--limit 2`（也兼容环境变量 `LIMIT`），并指定独立 `OUTPUT_DIR`；不能把子集结果视为全量。
 
-独立脚本配置模型、接口、数据路径和输出目录，并显式列出 `TEMPERATURE=0`、`MAX_TOKENS=16384`；其他参数使用统一入口默认值，可按需通过环境变量覆盖。脚本使用现有环境，不创建或安装环境。Qwen3-8B端点默认为 `http://127.0.0.1:8000/v1`；模型需另行启动。实验脚本不设置 `TOP_N`；统一入口默认使用与原生命令行 `--top_n` 一致的100列（底层 `retrieve()` 函数默认50不是命令行默认值）。其余默认5候选、16384输出token、temperature=0、top_p=0.95、top_k=20、seed=42，保留默认思考；原探索10轮、修订5轮。BGE默认使用CPU，避免占用vLLM显存，可通过 `EMBEDDING_MODEL`、`EMBEDDING_DEVICE` 覆盖。统一入口顺序调度原生函数以明确传播阶段错误，不改变提示词或新增模式修复算法。
+独立脚本配置模型、接口、数据路径和输出目录，并显式列出 `TEMPERATURE=0`、`MAX_TOKENS=16384`；其他参数使用统一入口默认值，可按需通过环境变量覆盖。脚本使用现有环境，不创建或安装环境。Qwen3-8B端点默认为 `http://127.0.0.1:8000/v1`；模型需另行启动。实验脚本不设置 `TOP_N`；统一入口默认使用与原生命令行 `--top_n` 一致的100列（底层 `retrieve()` 函数默认50不是命令行默认值）。其余默认5候选、16384输出token、temperature=0、seed=42；客户端不再传入 `top_p` 或采样 `top_k`，保留默认思考；原探索10轮、修订5轮。两份实验脚本通过 `EMBEDDING_DEVICE=cuda:0` 注入BGE的GPU设备；可用 `EMBEDDING_DEVICE=cuda:1 bash run_bird_minidev_qwen3_8b.sh` 指定其他可见GPU，编号相对于 `CUDA_VISIBLE_DEVICES`。可通过 `EMBEDDING_MODEL` 覆盖嵌入模型。直接调用Python入口且未设置设备时仍回退到CPU。统一入口顺序调度原生函数以明确传播阶段错误，不改变提示词或新增模式修复算法。
 
 产物位于 `outputs/`：`data/` 保存白名单在线数据、规范化元数据和运行配置；`documents/`、`embeddings/` 保存可复用产物；`logs/` 保存原生中间结果；`calls/` 保存无密钥的请求响应；`stages/` 为完成标记；最终 `predictions.json` 保留原始question_id、题目顺序与预测SQL。`manifest.json` 校验配置、输入、源码和关键依赖版本，变化时要求新输出目录，且通过文件锁防止同一实验并行覆盖。
 
@@ -170,6 +170,8 @@ git diff --check
 数据层测试使用合成只读数据库与模型桩，覆盖字段白名单、别名、缺失文档、重复题目、数据集切换、越界访问、写入拒绝、超时，以及原生文档、Schema提示、SQL生成方言、执行和修订接口。全量数据资源校验：Spider2 SQLite 135题/30库/432个元数据对象，Mini-Dev 500题/11库/75表。尚未进行真实LLM端到端实验，也未验证BigQuery/Snowflake远程运行。
 
 ### 全量默认与自动续跑
+
+单阶段默认超时为 `STAGE_TIMEOUT=518400`（144小时），可通过环境变量覆盖；`API_TIMEOUT=1200` 控制单次请求超时，`SQL_TIMEOUT=60` 控制SQLite执行超时。三项默认时限均为此前的两倍。超时按每次启动的单个阶段计时，已完成单元通过检查点续跑。`STAGE_TIMEOUT` 仍属于清单配置，已有实验不能直接改变该环境变量后复用原目录。
 
 默认输出目录不含固定题数：`outputs/autolink_bird_minidev_Qwen3-8B/` 与 `outputs/autolink_spider2_lite_sqlite_Qwen3-8B/`。保持配置不变，重新执行相同命令即可自动续跑，无需额外恢复开关：
 
@@ -212,6 +214,7 @@ Spider2直接使用官方 `evaluate.py --mode sql`，不再提供额外评估包
 ```bash
 export TEMPERATURE="${TEMPERATURE:-0}"
 export MAX_TOKENS="${MAX_TOKENS:-16384}"        # 单次生成上限，包含思考token
+export EMBEDDING_DEVICE="${EMBEDDING_DEVICE:-cuda:0}"
 ```
 
 实验脚本仅设置客户端生成上限 `max_tokens=16384`，不设置或要求服务端返回 `max_model_len`。总上下文上限只由模型启动脚本控制；当前启动配置仍为32768。模型预检仅核对服务模型名，已完成全部模型阶段的续跑不要求服务仍在线。修改生成预算后需使用新的实验输出目录。
