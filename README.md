@@ -159,10 +159,10 @@ OUTPUT_DIR=outputs/spider2_smoke bash run_spider2_lite_sqlite_qwen3_8b.sh --limi
 | `EMBEDDING_BASE_URL` | `http://127.0.0.1:9000/v1` | 独立嵌入服务地址 |
 | `EMBEDDING_API_KEY` | `EMPTY` | 嵌入服务密钥，不写入清单 |
 | `EMBEDDING_MODEL` | `/root/autodl-tmp/models/bge-m3` | 与服务的 served-model-name 一致 |
-| `EMBEDDING_DIMENSIONS` | `0` | 0保留原生维度，不传 dimensions；正数仅适用于支持Matryoshka的模型 |
+| `EMBEDDING_DIMENSIONS` | `0` | 使用模型原生维度，不传 dimensions；BGE-M3与bge-large-en-v1.5原生均为1024维 |
 | `EMBEDDING_MAX_TOKENS` | `8192` | 每条嵌入输入的token上限，通过 truncate_prompt_tokens 由服务端从右侧截断，保留前N个token |
 
-BGE-M3不支持任意修改输出维度，因此应保持 `EMBEDDING_DIMENSIONS=0`；客户端不会自行截断或填充向量。输入token上限应不超过服务的 `--max-model-len`。这些参数与LLM生成的 `MAX_TOKENS` 相互独立。[vLLM嵌入接口说明](https://docs.vllm.ai/en/v0.19.0/models/pooling_models/embed/)
+BGE-M3与bge-large-en-v1.5的原生向量维度均为1024。配置值 `0` 表示使用原生维度，并非输出0维向量；请求中省略 `dimensions`，避免vLLM拒绝非Matryoshka模型的显式维度参数。正数仅适用于支持Matryoshka的模型；客户端不会自行截断或填充向量。输入token上限应不超过服务的 `--max-model-len`。这些参数与LLM生成的 `MAX_TOKENS` 相互独立。[vLLM嵌入接口说明](https://docs.vllm.ai/en/v0.19.0/models/pooling_models/embed/)
 
 ```bash
 # 单独启动嵌入服务，GPU编号在服务端指定；不会由实验脚本自动启动。
@@ -261,6 +261,8 @@ git diff --check
 ### 全量默认与自动续跑
 
 API请求超时使用OpenAI SDK默认值，通过SDK的 `DefaultHttpxClient` 保留默认超时配置；不再使用 `API_TIMEOUT`。整个阶段不设置超时，不再使用 `STAGE_TIMEOUT`。`SQL_TIMEOUT=600` 控制SQLite执行及修订中的查询超时；Schema探索不设置查询时限。已完成单元通过检查点续跑。配置和代码均记录在清单中，修改后应使用新的输出目录。
+
+阶段不设置 API 调用总次数上限，旧环境变量 `MAX_API_CALLS_PER_STAGE` 不再生效；调用日志及统计继续保留。其他独立约束仍有效：LLM 输出 token 上限、嵌入输入截断长度、服务模型预检的10秒超时，以及 API 请求失败时中止运行的处理。LLM 和嵌入客户端均设置 `max_retries=0`。这些新增运行设置不等同于原方法已有的探索10轮、修订5轮和SQL执行600秒时限。
 
 默认输出目录不含固定题数：`outputs/autolink_bird_minidev_Qwen3-8B/` 与 `outputs/autolink_spider2_lite_sqlite_Qwen3-8B/`。保持配置不变，重新执行相同命令即可自动续跑，无需额外恢复开关：
 

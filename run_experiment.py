@@ -38,7 +38,6 @@ ENV_DEFAULTS = {
     "NUM_CANDIDATES": "5",
     "MAX_TOKENS": "16384",
     "SQL_TIMEOUT": "600",
-    "MAX_API_CALLS_PER_STAGE": "30000",
     "TEMPERATURE": "0",
     "EMBEDDING_MODEL": "BAAI/bge-large-en-v1.5",
     "EMBEDDING_BASE_URL": "http://127.0.0.1:8001/v1",
@@ -111,10 +110,6 @@ class ModelClient:
         folder = self.output / "calls"
         folder.mkdir(exist_ok=True)
         with self._record_lock:
-            if sum(1 for _ in folder.glob(self.stage + "-*.json")) >= int(
-                os.environ["MAX_API_CALLS_PER_STAGE"]
-            ):
-                raise ExperimentFailure("Model-call stage budget exhausted (including previous attempts)")
             self.count += 1
             fields = telemetry.call_metadata("llm")
             fields["stage"] = self.stage

@@ -62,7 +62,8 @@ class EmbeddingClient:
                 "truncation_side": "right",
             },
         }
-        # Do not send dimensions=0: non-Matryoshka models require this field omitted.
+        # 0 omits dimensions and uses the model's native size (1024 for BGE-M3/BGE-large-en-v1.5).
+        # Non-Matryoshka models require this request field to be omitted.
         if self.config.dimensions:
             request["dimensions"] = self.config.dimensions
         output = telemetry.output_directory()

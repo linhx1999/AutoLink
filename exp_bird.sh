@@ -10,14 +10,15 @@ export MODEL_NAME="${MODEL_NAME:-/root/autodl-tmp/models/Qwen3.5-9B}"
 # OpenAI客户端请求参数；max_tokens包含思考与最终输出。
 # SQL候选生成、探索、修订和选择均默认使用0。
 export TEMPERATURE="${TEMPERATURE:-0}"
-export MAX_TOKENS="${MAX_TOKENS:-16384}"
+export MAX_TOKENS="${MAX_TOKENS:-32768}"
 
 # 嵌入服务配置（独立vLLM服务；GPU在服务启动时指定）
 export EMBEDDING_BASE_URL="${EMBEDDING_BASE_URL:-http://127.0.0.1:9000/v1}"
 export EMBEDDING_API_KEY="${EMBEDDING_API_KEY:-EMPTY}"
 # 与vLLM的 --served-model-name 一致。
 export EMBEDDING_MODEL="${EMBEDDING_MODEL:-/root/autodl-tmp/models/bge-m3}"
-# 0表示模型原生维度；非0仅用于支持Matryoshka的模型，BGE-M3请保持0。
+# 0表示使用模型原生维度，不向API传递dimensions；BGE-M3和bge-large-en-v1.5原生均为1024维。
+# 非0仅用于支持Matryoshka的模型；BGE-M3请保持0，显式传递dimensions会被vLLM拒绝。
 export EMBEDDING_DIMENSIONS="${EMBEDDING_DIMENSIONS:-0}"
 # 每条嵌入输入的token上限，超过时从右侧截断（保留开头）；不应超过服务的max-model-len。
 export EMBEDDING_MAX_TOKENS="${EMBEDDING_MAX_TOKENS:-8192}"
