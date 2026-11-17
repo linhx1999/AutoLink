@@ -180,7 +180,7 @@ def model_vote(instance_id, tied_clusters, args, schema, question):
         #         )
         resp = client.chat.completions.create(
             # model="deepseek-reasoner",
-            model='deepseek-reasoner',
+            model=os.environ.get("MODEL_NAME"),
             messages=[{"role": "user", "content": prompt}]
         )
 

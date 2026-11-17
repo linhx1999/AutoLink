@@ -1,12 +1,16 @@
 import os
 import json
+import data_layer
 import multiprocessing as mp
 from tqdm import tqdm
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
+# Original (26c7231):
+# from sentence_transformers import SentenceTransformer
 from utils import *
 import argparse
+from pathlib import Path
+from embedding_client import EmbeddingConfig
 
 def sliding_window_table_match(metadata_table: str, target_table: str) -> bool:
     metadata_parts = metadata_table.lower().split('.')
@@ -76,12 +80,19 @@ def _retrieve_with_device_filtered(question: str, db_name: str, embed_path: str,
                                  excluded_indices: set, top_k: int = 5, device: str = "cuda:0"):
     from model_manager import model_manager
     index_path = os.path.join(embed_path, db_name, "index.faiss")
+    config_path = Path(embed_path, db_name, "embedding_config.json")
+    if not config_path.exists() or data_layer.read_json(config_path) != EmbeddingConfig.from_env().signature():
+        raise ValueError("Embedding configuration changed or missing; rebuild the index in a new run")
     index = faiss.read_index(index_path)
     metadata_path = os.path.join(embed_path, db_name, "metadata.json")
     with open(metadata_path, "r", encoding="utf-8") as f:
         metadata_mapping = json.load(f)
     model_manager.load_model(device=device)
+    # Original (26c7231):
+    #     question_embedding = model_manager.encode(question)
     question_embedding = model_manager.encode(question)
+    if question_embedding.shape[-1] != index.d:
+        raise ValueError("Query embedding dimension differs from the document index")
     distances, indices = index.search(question_embedding.reshape(1, -1), len(metadata_mapping))
     filtered_results = []
     
@@ -200,20 +211,24 @@ def get_next_k_results(instance_id: str, question: str, db_name: str, embed_path
 
 
 def process_batch_with_device(batch_items, device_id, top_k, log_dir):
-    print(f"process {os.getpid()} - GPU {device_id}: loading model...")
-    try:
-        from model_manager import model_manager
-        model_manager.load_model(device=f"cuda:{device_id}")
-        memory_info = model_manager.get_memory_usage()
-        if memory_info:
-            print(f"process {os.getpid()} - GPU {device_id}: model has load to {memory_info['device']}")
-        else:
-            print(f"process {os.getpid()} - GPU {device_id}: model has load to CPU")
-    except Exception as e:
-        print(f"process {os.getpid()} - GPU {device_id}: model load failed: {e}")
-        print(f"process {os.getpid()} - GPU {device_id}: will use CPU mode")
-        model_manager.load_model(device="cpu")
-    
+    # Original (26c7231):
+    #     print(f"process {os.getpid()} - GPU {device_id}: loading model...")
+    #     try:
+    #         from model_manager import model_manager
+    #         model_manager.load_model(device=f"cuda:{device_id}")
+    #         memory_info = model_manager.get_memory_usage()
+    #         if memory_info:
+    #             print(f"process {os.getpid()} - GPU {device_id}: model has load to {memory_info['device']}")
+    #         else:
+    #             print(f"process {os.getpid()} - GPU {device_id}: model has load to CPU")
+    #     except Exception as e:
+    #         print(f"process {os.getpid()} - GPU {device_id}: model load failed: {e}")
+    #         print(f"process {os.getpid()} - GPU {device_id}: will use CPU mode")
+    #         model_manager.load_model(device="cpu")
+    from model_manager import model_manager
+    model_manager.load_model()
+    print(f"process {os.getpid()}: using vLLM embedding service")
+
     batch_results = {}
     
     cache_dir = os.path.join(log_dir, "cache")
@@ -280,7 +295,8 @@ def retrieve_additional(instance_id: str, question: str, additional_k: int, log_
     cache_dir = os.path.join(log_dir, "cache")
     status_dir = os.path.join(log_dir, "status")
     
-    with open("spider2_data.json", "r", encoding="utf-8") as f:
+    # with open("spider2_data.json", "r", encoding="utf-8") as f:
+    with open(data_layer.question_file(), "r", encoding="utf-8") as f:
         spider2_data = json.load(f)
     
     if instance_id not in spider2_data:
@@ -318,7 +334,8 @@ def retrieve_additional(instance_id: str, question: str, additional_k: int, log_
 def retrieve(log_dir: str, top_n: int = 50):
     os.makedirs(log_dir, exist_ok=True)
 
-    with open("spider2_data.json", "r", encoding="utf-8") as f:
+    # with open("spider2_data.json", "r", encoding="utf-8") as f:
+    with open(data_layer.question_file(), "r", encoding="utf-8") as f:
         spider2_data = json.load(f)
 
     instance_ids = list(spider2_data.keys())

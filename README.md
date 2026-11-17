@@ -102,3 +102,7 @@ If you find this repo helpful, please cite our work:
 ## 数据适配
 
 数据层支持 BIRD Mini-Dev/Dev 与 Spider2-Lite SQLite，提供资源校验、只读数据库访问和预测导出。
+
+## 模型服务
+
+使用 scripts/start_models 下的 Qwen3-8B.sh、Qwen3.5-9B.sh 和 bge-m3.sh 启动服务。模型名由 MODEL_NAME 设置；嵌入使用 EMBEDDING_BASE_URL、EMBEDDING_MODEL、EMBEDDING_DIMENSIONS 和 EMBEDDING_MAX_TOKENS。

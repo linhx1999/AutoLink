@@ -220,7 +220,7 @@ class SQLReviser:
                 try:
                     response = self.client.chat.completions.create(
                         # model="deepseek-reasoner",
-                        model='deepseek-reasoner',
+                        model=os.environ.get("MODEL_NAME"),
                         messages=messages,
                     )
                     reasoning_content = response.choices[0].message.reasoning_content

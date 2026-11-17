@@ -305,7 +305,7 @@ def process_instance_batch(batch_instances, log_path):
 
             response = client.chat.completions.create(
                 # model="deepseek-chat",
-                model='deepseek-chat',
+                model=os.environ.get("MODEL_NAME"),
                 messages=messages,
             )
             model_output = response.choices[0].message.content
