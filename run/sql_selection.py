@@ -2,6 +2,7 @@ import argparse
 import os
 import pandas as pd
 import json
+import data_layer
 import math
 from openai import OpenAI
 import itertools
@@ -152,11 +153,14 @@ def model_vote(instance_id, tied_clusters, args, schema, question):
 
     for c in candidates:
         scores[c["cid"]] = 0
-    if instance_id.startswith("bq"):
+    # if instance_id.startswith("bq"):
+    if data_layer.dialect(instance_id) == "bigquery":
         dialect = "BigQuery"
-    elif instance_id.startswith("ga"):
-        dialect = "BigQuery"
-    elif instance_id.startswith("sf"):
+    # Original (26c7231):
+    #     elif instance_id.startswith("ga"):
+    #         dialect = "BigQuery"
+    # elif instance_id.startswith("sf"):
+    elif data_layer.dialect(instance_id) == "snowflake":
         dialect = "snowflake"
     else:
         dialect = "SQLite"
@@ -170,8 +174,13 @@ def model_vote(instance_id, tied_clusters, args, schema, question):
         prompt = prompt.replace("{re1}", str(a['df'].iloc[:min(len(a['df']), args.max_rows)])[:args.max_chars])
         prompt = prompt.replace("{re2}", str(b['df'].iloc[:min(len(b['df']), args.max_rows)])[:args.max_chars])
 
+        # Original (26c7231):
+        #         resp = client.chat.completions.create(
+        #             messages=[{"role": "user", "content": prompt}]
+        #         )
         resp = client.chat.completions.create(
-            model="deepseek-reasoner",
+            # model="deepseek-reasoner",
+            model='deepseek-reasoner',
             messages=[{"role": "user", "content": prompt}]
         )
 
@@ -227,7 +236,8 @@ def process_instance(name, args, lock):
     if isinstance(selected, list):
         with open(f"{args.log_path}/final_schema_prompts/{instance_id}.txt", "r") as f:
             schema = f.read()
-        with open("spider2_data.json", "r") as f:
+        # with open("spider2_data.json", "r") as f:
+        with open(data_layer.question_file(), "r") as f:
             spider2 = json.load(f)
         question = spider2[instance_id]["question"]
         selected = model_vote(instance_id, selected, args, schema, question)

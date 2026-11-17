@@ -1,5 +1,6 @@
 import os
 import json
+import data_layer
 from tqdm import tqdm
 import re
 import argparse
@@ -259,19 +260,23 @@ def generate_schema_prompt(log_path: str, is_initial: bool = False):
         os.makedirs(f"{log_path}/schema_prompts", exist_ok=True)
     else:
         print("Generating final schema prompts...")
-        with open("spider2_data.json", "r", encoding="utf-8") as f:
+        # with open("spider2_data.json", "r", encoding="utf-8") as f:
+        with open(data_layer.question_file(), "r", encoding="utf-8") as f:
             spider2_data = json.load(f)
         with open(f"{log_path}/unfilled_schema.json", "r", encoding="utf-8") as f:
             candidates = json.load(f)
         os.makedirs(f"{log_path}/final_schema_prompts", exist_ok=True)
     
-    with open("documents/bigquery.json", "r", encoding="utf-8") as f:
+    # with open("documents/bigquery.json", "r", encoding="utf-8") as f:
+    with open(data_layer.artifact_path("documents/bigquery.json"), "r", encoding="utf-8") as f:
         bigquery_data = json.load(f)
 
-    with open("documents/snowflake.json", "r", encoding="utf-8") as f:
+    # with open("documents/snowflake.json", "r", encoding="utf-8") as f:
+    with open(data_layer.artifact_path("documents/snowflake.json"), "r", encoding="utf-8") as f:
         snowflake_data = json.load(f)
 
-    with open("documents/localdb.json", "r", encoding="utf-8") as f:
+    # with open("documents/localdb.json", "r", encoding="utf-8") as f:
+    with open(data_layer.artifact_path("documents/localdb.json"), "r", encoding="utf-8") as f:
         localdb_data = json.load(f)
 
     schema_prompt = ""
@@ -279,11 +284,14 @@ def generate_schema_prompt(log_path: str, is_initial: bool = False):
     for instance_id, schema_info in tqdm(candidates.items()):
         db_name = schema_info["db_name"]
 
-        if instance_id.startswith("bq") or instance_id.startswith("ga"):
+        # if instance_id.startswith("bq") or instance_id.startswith("ga"):
+        if data_layer.dialect(instance_id) == "bigquery":
             db_data = bigquery_data[db_name]
-        elif instance_id.startswith("sf"):
+        # elif instance_id.startswith("sf"):
+        elif data_layer.dialect(instance_id) == "snowflake":
             db_data = snowflake_data[db_name]
-        elif instance_id.startswith("local"):
+        # elif instance_id.startswith("local"):
+        elif data_layer.dialect(instance_id) == "sqlite":
             db_data = localdb_data[db_name]
         else:
             raise ValueError(f"Unknown instance ID: {instance_id}")
@@ -328,7 +336,8 @@ def generate_schema_prompt(log_path: str, is_initial: bool = False):
                     columns, column_types, column_values, descriptions
             ):
                 is_dict, is_array, is_variant = get_column_type(column_type)
-                if not instance_id.startswith("sf"):
+                # if not instance_id.startswith("sf"):
+                if data_layer.dialect(instance_id) != "snowflake":
                     column_va = process_values(column_value, is_dict=is_dict, is_array=is_array, is_variant=is_variant,
                                               max_length=100)
                 else:
@@ -349,10 +358,12 @@ def generate_schema_prompt(log_path: str, is_initial: bool = False):
             schema_prompt += "]\n"
 
             if similar_tables:
-                if instance_id.startswith("bq") or instance_id.startswith("ga"):
+                # if instance_id.startswith("bq") or instance_id.startswith("ga"):
+                if data_layer.dialect(instance_id) == "bigquery":
                     table_name = [similar_table.split(".")[-1] for similar_table in similar_tables]
                     schema_prompt += f"**Some other tables have the similar structure: [{', '.join(table_name)}]**\n"
-                elif instance_id.startswith("sf"):
+                # elif instance_id.startswith("sf"):
+                elif data_layer.dialect(instance_id) == "snowflake":
                     try:
                         table_name = [".".join(similar_table.split(".")[1:]) for similar_table in similar_tables]
                         schema_prompt += f"**Some other tables have the similar structure: [{', '.join(table_name)}]**\n"
@@ -371,7 +382,8 @@ def generate_schema_prompt(log_path: str, is_initial: bool = False):
             if instance_id in spider2_data:
                 ek_file = spider2_data[instance_id].get("external_knowledge", "")
                 if ek_file:
-                    ek_path = os.path.join("resource", "documents", ek_file)
+                    # ek_path = os.path.join("resource", "documents", ek_file)
+                    ek_path = data_layer.resource_path("documents/" + ek_file)
                     if os.path.exists(ek_path):
                         with open(ek_path, "r", encoding="utf-8") as ef:
                             ek_content = ef.read()
