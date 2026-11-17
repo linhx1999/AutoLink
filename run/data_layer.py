@@ -66,20 +66,18 @@ class DatasetLayout:
     data_root: Path
     database_root: Path
 
-    @property
-    def split(self) -> str | None:
-        return self.dataset.removeprefix("bird_") if self.dataset in BIRD_DATASETS else None
+    split: str | None = None
 
     @property
     def input_file(self) -> Path:
         return self.data_root / (
             "mini_dev_sqlite.json"
-            if self.dataset == "bird_minidev"
-            else "dev.json" if self.dataset == "bird_dev" else "spider2-lite.jsonl"
+            if self.dataset == "bird" and self.split == "minidev"
+            else "dev.json" if self.dataset == "bird" else "spider2-lite.jsonl"
         )
 
     def load_questions(self) -> list[Question]:
-        if self.dataset in BIRD_DATASETS:
+        if self.dataset == "bird":
             rows = read_json(self.input_file)
             if not isinstance(rows, list):
                 raise ValueError("BIRD questions must be an array")
@@ -128,7 +126,7 @@ class DatasetLayout:
         return questions
 
     def database_path(self, question: Question) -> Path:
-        if self.dataset in BIRD_DATASETS:
+        if self.dataset == "bird":
             path = inside(
                 self.database_root, f"{question.db_id}/{question.db_id}.sqlite"
             )
@@ -361,10 +359,11 @@ def resolve_dataset(
         if split not in ("minidev", "dev"):
             raise ValueError("Unsupported BIRD split: " + split)
         root = root / ("MINIDEV" if split == "minidev" else "dev")
-        dataset = "bird_" + split
     elif dataset in BIRD_DATASETS:
         if split is not None and split != dataset.removeprefix("bird_"):
             raise ValueError("Split conflicts with dataset alias")
+        # Legacy aliases already receive the split directory as data_root.
+        dataset, split = dataset.split("_", 1)
     elif split is not None:
         raise ValueError("--split is currently supported only for BIRD")
     dbroot = (
@@ -373,11 +372,11 @@ def resolve_dataset(
         else root
         / (
             "dev_databases"
-            if dataset in BIRD_DATASETS
+            if dataset == "bird"
             else "resource/databases/spider2-localdb"
         )
     )
-    return DatasetLayout(dataset, root, dbroot)
+    return DatasetLayout(dataset, root, dbroot, split)
 
 
 @lru_cache(maxsize=8)
@@ -482,7 +481,7 @@ def export_predictions(
     """Export complete predictions in each benchmark's native submission format."""
     import re
 
-    if dataset not in (*BIRD_DATASETS, "spider2_lite_sqlite"):
+    if dataset not in SUPPORTED_DATASETS:
         raise ValueError("Unsupported export dataset: " + dataset)
     expected = [r["instance_id"] for r in identities]
     supplied = [r["instance_id"] for r in rows]
@@ -516,7 +515,7 @@ def export_predictions(
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     files = {}
-    if dataset in BIRD_DATASETS:
+    if dataset == "bird" or dataset in BIRD_DATASETS:
         separator = "\t----- bird -----\t"
         if any(separator in row["pred"] for row in ordered):
             raise ValueError("Prediction contains reserved BIRD separator")

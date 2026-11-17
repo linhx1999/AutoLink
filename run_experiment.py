@@ -611,7 +611,7 @@ def main() -> None:
         manifest = {
             "protocol": "autolink-data-layer-v1",
             "run_id": os.environ.get("AUTOLINK_RUN_ID", output.name),
-            "dataset": "bird" if layout.split else layout.dataset,
+            "dataset": layout.dataset,
             "split": layout.split,
             "instances": [q.instance_id for q in questions],
             "input_hashes": layout.source_hashes(questions),
