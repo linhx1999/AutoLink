@@ -5,6 +5,7 @@ import os
 import threading
 import time
 from pathlib import Path
+import telemetry
 from urllib.parse import urlparse
 
 
@@ -64,8 +65,35 @@ class EmbeddingClient:
         # Do not send dimensions=0: non-Matryoshka models require this field omitted.
         if self.config.dimensions:
             request["dimensions"] = self.config.dimensions
-        response = self.client.embeddings.create(**request)
-        vectors = self._validate_response(response, texts)
+        output = telemetry.output_directory()
+        fields = telemetry.call_metadata("embedding")
+        record = telemetry.Record(
+            Path(output) / "embedding_calls", fields.get("stage") or "embedding",
+            **fields, request=telemetry.embedding_request_metadata(request), endpoint=self.config.base_url,
+            ttft_seconds=None, ttft_unavailable_reason="embedding_response_not_streamed",
+        ) if output else None
+        started = time.perf_counter()
+        received = False
+        usage = None
+        api_seconds = None
+        try:
+            response = self.client.embeddings.create(**request)
+            received = True
+            api_seconds = time.perf_counter() - started
+            usage = telemetry.usage_dict(getattr(response, "usage", None))
+            vectors = self._validate_response(response, texts)
+        except BaseException as exc:
+            if record:
+                record.finish(
+                    "returned" if received else "request_failure" if isinstance(exc, Exception) else "interrupted",
+                    outcome="invalid_response" if received else "request_failure",
+                    error_type=type(exc).__name__, error=str(exc), usage=usage,
+                    api_seconds=api_seconds if api_seconds is not None else time.perf_counter() - started,
+                )
+            raise
+        if record:
+            record.finish("returned", outcome="success", usage=usage,
+                          api_seconds=api_seconds, dimensions=len(vectors[0]))
         return vectors
 
     def _validate_response(self, response, texts):
