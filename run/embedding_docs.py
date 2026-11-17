@@ -4,6 +4,7 @@ from embedding_client import EmbeddingClient
 import os
 import json
 import data_layer
+import telemetry
 import numpy as np
 import faiss
 from tqdm import tqdm
@@ -66,7 +67,9 @@ def embed_documents(input_file: str, embed_path: str, batch_size: int = 32):
             batch_descriptions = all_descriptions[i:i + batch_size]
             # Original (26c7231):
             #             batch_embeddings = model.encode(batch_descriptions, convert_to_numpy=True)
-            batch_embeddings = model.encode(batch_descriptions, convert_to_numpy=True)
+            with telemetry.scope(stage="embeddings", db_id=db_name,
+                                 batch_index=i // batch_size, embedding_role="document"):
+                batch_embeddings = model.encode(batch_descriptions, convert_to_numpy=True)
             db_embeddings.extend(batch_embeddings)
 
         assert len(db_embeddings) == len(metadata_mapping)

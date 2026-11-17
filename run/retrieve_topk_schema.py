@@ -1,6 +1,7 @@
 import os
 import json
 import data_layer
+import telemetry
 import multiprocessing as mp
 from tqdm import tqdm
 import faiss
@@ -90,7 +91,8 @@ def _retrieve_with_device_filtered(question: str, db_name: str, embed_path: str,
     model_manager.load_model(device=device)
     # Original (26c7231):
     #     question_embedding = model_manager.encode(question)
-    question_embedding = model_manager.encode(question)
+    with telemetry.scope(db_id=db_name, embedding_role="query"):
+        question_embedding = model_manager.encode(question)
     if question_embedding.shape[-1] != index.d:
         raise ValueError("Query embedding dimension differs from the document index")
     distances, indices = index.search(question_embedding.reshape(1, -1), len(metadata_mapping))

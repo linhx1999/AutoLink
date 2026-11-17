@@ -106,3 +106,7 @@ If you find this repo helpful, please cite our work:
 ## 模型服务
 
 使用 scripts/start_models 下的 Qwen3-8B.sh、Qwen3.5-9B.sh 和 bge-m3.sh 启动服务。模型名由 MODEL_NAME 设置；嵌入使用 EMBEDDING_BASE_URL、EMBEDDING_MODEL、EMBEDDING_DIMENSIONS 和 EMBEDDING_MAX_TOKENS。
+
+## 实验运行
+
+exp_bird.sh 支持 dataset/split、多轮 run ID、并发和检查点续跑。默认 workers=16、temperature=0，不设置种子；执行和修订 SQL 时限为600秒，探索及整个阶段没有新增时限。输出超限记录该题失败并继续。

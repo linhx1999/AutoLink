@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import json
 import data_layer
+import telemetry
 import math
 from openai import OpenAI
 import itertools
@@ -178,11 +179,12 @@ def model_vote(instance_id, tied_clusters, args, schema, question):
         #         resp = client.chat.completions.create(
         #             messages=[{"role": "user", "content": prompt}]
         #         )
-        resp = client.chat.completions.create(
-            # model="deepseek-reasoner",
-            model=os.environ.get("MODEL_NAME"),
-            messages=[{"role": "user", "content": prompt}]
-        )
+        with telemetry.scope(pair_candidates=[a["cid"], b["cid"]]):
+            resp = client.chat.completions.create(
+                # model="deepseek-reasoner",
+                model=os.environ.get("MODEL_NAME"),
+                messages=[{"role": "user", "content": prompt}]
+            )
 
         out = resp.choices[0].message.content.lower()
         if "sql1" in out:
