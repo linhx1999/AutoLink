@@ -10,7 +10,9 @@ export MODEL_NAME="${MODEL_NAME:-Qwen3.5-9B}"
 # OpenAI客户端请求参数；max_tokens包含思考与最终输出。
 # SQL候选生成、探索、修订和选择均默认使用0。
 export TEMPERATURE="${TEMPERATURE:-0}"
-export MAX_TOKENS="${MAX_TOKENS:-32768}"
+export MAX_TOKENS="${MAX_TOKENS:-16384}"
+# 模型请求超时（秒）；覆盖探索、SQL生成、修订和选择阶段。
+export MODEL_TIMEOUT="${MODEL_TIMEOUT:-1800}"
 
 # 嵌入服务配置（独立vLLM服务；GPU在服务启动时指定）
 export EMBEDDING_BASE_URL="${EMBEDDING_BASE_URL:-http://127.0.0.1:9001/v1}"
@@ -31,7 +33,7 @@ RUN_ID="${RUN_ID:-run1}"
 # 顺序运行次数；例如 RUNS=3 从run1开始执行run1、run2、run3。
 RUNS="${RUNS:-1}"
 # 同一阶段并发处理的题目数；设为1恢复串行。
-WORKERS="${WORKERS:-16}"
+WORKERS="${WORKERS:-8}"
 
 # 参数拼接
 # 提取脚本参数；输出目录在每次运行时单独设置。

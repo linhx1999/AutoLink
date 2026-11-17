@@ -37,6 +37,7 @@ ENV_DEFAULTS = {
     "TOP_N": "100",
     "NUM_CANDIDATES": "5",
     "MAX_TOKENS": "16384",
+    "MODEL_TIMEOUT": "1800",
     "SQL_TIMEOUT": "600",
     "TEMPERATURE": "0",
     "EMBEDDING_MODEL": "BAAI/bge-large-en-v1.5",
@@ -90,11 +91,17 @@ class ModelClient:
 
     def __init__(self, output: Path, stage: str):
         from openai import DefaultHttpxClient, OpenAI
+        import math
+
+        timeout = float(os.environ.get("MODEL_TIMEOUT", ENV_DEFAULTS["MODEL_TIMEOUT"]))
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("MODEL_TIMEOUT must be a positive finite number of seconds")
 
         self.api = OpenAI(
             api_key=os.environ.get("OPENAI_API_KEY"),
             base_url=os.environ.get("OPENAI_BASE_URL"),
             max_retries=0,
+            timeout=timeout,
             http_client=DefaultHttpxClient(trust_env=False),
         )
         self.output = output
