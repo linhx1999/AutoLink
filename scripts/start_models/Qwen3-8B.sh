@@ -6,15 +6,14 @@ MODEL="/root/autodl-tmp/models/Qwen3-8B"
 SERVED_MODEL_NAME="$(basename "${MODEL%/}")"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-65536}"
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-40960}"
 TENSOR_PARALLEL_SIZE="1"
 GPU_MEMORY_UTILIZATION="0.90"
-MAX_NUM_SEQS="32"
-DTYPE="auto"
+MAX_NUM_SEQS="16"
+DTYPE="bfloat16"
 REASONING_PARSER="qwen3"
 
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 # 启动 vLLM 服务
 # 通过 setsid 将 vLLM 及其张量并行 Worker 子进程放入同一进程组，便于在
@@ -39,7 +38,7 @@ cleanup() {
     echo "服务已停止，显存已释放"
 }
 
-setsid "$PYTHON_BIN" -m vllm.entrypoints.openai.api_server \
+setsid python3 -m vllm.entrypoints.openai.api_server \
     --model "$MODEL" \
     --served-model-name "$SERVED_MODEL_NAME" \
     --host "$HOST" \
@@ -50,6 +49,9 @@ setsid "$PYTHON_BIN" -m vllm.entrypoints.openai.api_server \
     --max-num-seqs "$MAX_NUM_SEQS" \
     --dtype "$DTYPE" \
     --reasoning-parser "$REASONING_PARSER" \
+    --enable-auto-tool-choice \
+    --tool-call-parser qwen3_coder \
+    --language-model-only \
     &
 VLLM_PGID=$!
 
