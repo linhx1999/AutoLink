@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import json
 import data_layer
+from model_errors import OutputTokenLimit
 import telemetry
 import math
 from openai import OpenAI
@@ -37,10 +38,10 @@ def read_txt_safe(path):
     except:
         return None
 
-def build_candidates(instance_id, args):
+def build_candidates(instance_id, args, candidate_ids=None):
     candidates = []
 
-    for cid in range(args.num_candidates):
+    for cid in (range(args.num_candidates) if candidate_ids is None else candidate_ids):
         # ---------- sql_gen ----------
         sql_gen_dir = f"{args.log_path}/sql_gen"
         sql_path = f"{sql_gen_dir}/{args.task}_sql_{cid}/{instance_id}.sql"
@@ -180,11 +181,15 @@ def model_vote(instance_id, tied_clusters, args, schema, question):
         #             messages=[{"role": "user", "content": prompt}]
         #         )
         with telemetry.scope(pair_candidates=[a["cid"], b["cid"]]):
-            resp = client.chat.completions.create(
-                # model="deepseek-reasoner",
-                model=os.environ.get("MODEL_NAME"),
-                messages=[{"role": "user", "content": prompt}]
-            )
+            try:
+                resp = client.chat.completions.create(
+                    # model="deepseek-reasoner",
+                    model=os.environ.get("MODEL_NAME"),
+                    messages=[{"role": "user", "content": prompt}]
+                )
+            except OutputTokenLimit:
+                # No vote for this pair. Keep votes from the other comparisons.
+                continue
 
         out = resp.choices[0].message.content.lower()
         if "sql1" in out:
@@ -212,9 +217,9 @@ def dump_final_selection(instance_id, selected, args):
         with open(os.path.join(base_dir, "error.txt"), "w", encoding="utf-8") as f:
             f.write(selected.get("error", "Unknown execution error"))
 
-def process_instance(name, args, lock):
+def process_instance(name, args, lock, candidate_ids=None):
     instance_id = name.replace(".txt", "")
-    candidates = build_candidates(instance_id, args)
+    candidates = build_candidates(instance_id, args, candidate_ids)
     clusters = cluster_by_execution(candidates)
     if not clusters:
         fallback = min(candidates, key=lambda x: x["cid"])

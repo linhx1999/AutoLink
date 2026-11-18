@@ -72,7 +72,7 @@ class DatasetLayout:
     def input_file(self) -> Path:
         return self.data_root / (
             "mini_dev_sqlite.json"
-            if self.dataset == "bird" and self.split == "minidev"
+            if self.dataset == "bird" and self.split in ("MINIDEV", "minidev")
             else "dev.json" if self.dataset == "bird" else "spider2-lite.jsonl"
         )
 
@@ -354,16 +354,19 @@ def resolve_dataset(
     if dataset not in SUPPORTED_DATASETS:
         raise ValueError("Unsupported dataset: " + dataset)
     root = Path(data_root).expanduser().resolve()
+    if split == "minidev":
+        split = "MINIDEV"
     if dataset == "bird":
-        split = split or "minidev"
-        if split not in ("minidev", "dev"):
+        split = split or "MINIDEV"
+        if split not in ("MINIDEV", "dev"):
             raise ValueError("Unsupported BIRD split: " + split)
-        root = root / ("MINIDEV" if split == "minidev" else "dev")
+        root = root / split
     elif dataset in BIRD_DATASETS:
-        if split is not None and split != dataset.removeprefix("bird_"):
+        alias_split = "MINIDEV" if dataset == "bird_minidev" else "dev"
+        if split is not None and split != alias_split:
             raise ValueError("Split conflicts with dataset alias")
         # Legacy aliases already receive the split directory as data_root.
-        dataset, split = dataset.split("_", 1)
+        dataset, split = "bird", alias_split
     elif split is not None:
         raise ValueError("--split is currently supported only for BIRD")
     dbroot = (

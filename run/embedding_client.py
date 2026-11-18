@@ -15,6 +15,7 @@ class EmbeddingConfig:
     model: str
     dimensions: int
     max_tokens: int
+    backend: str = "vllm"
 
     @classmethod
     def from_env(cls):
@@ -23,6 +24,7 @@ class EmbeddingConfig:
             os.environ.get("EMBEDDING_MODEL", "BAAI/bge-large-en-v1.5"),
             int(os.environ.get("EMBEDDING_DIMENSIONS", "0")),
             int(os.environ.get("EMBEDDING_MAX_TOKENS", "512")),
+            os.environ.get("EMBEDDING_BACKEND", "vllm"),
         )
         if config.dimensions < 0 or config.max_tokens <= 0:
             raise ValueError("EMBEDDING_DIMENSIONS must be >= 0 and EMBEDDING_MAX_TOKENS > 0")
@@ -31,7 +33,7 @@ class EmbeddingConfig:
         return config
 
     def signature(self):
-        return {"backend": "vllm", "truncation_side": "right", **asdict(self)}
+        return {"truncation_side": "right", **asdict(self)}
 
 
 class EmbeddingClient:

@@ -5,17 +5,21 @@ set -euo pipefail
 REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://127.0.0.1:8000/v1}"
 export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
-export MODEL_NAME="${MODEL_NAME:-Qwen3.5-9B}"
+# export MODEL_NAME="${MODEL_NAME:-Qwen3.5-9B}"
+export MODEL_NAME="${MODEL_NAME:-Qwen3-8B}"
 
 # OpenAI客户端请求参数；max_tokens包含思考与最终输出。
-# SQL候选生成、探索、修订和选择均默认使用0。
-export TEMPERATURE="${TEMPERATURE:-0}"
+# 分阶段温度；可通过环境变量单独覆盖。
+export EXPLORE_TEMPERATURE="${EXPLORE_TEMPERATURE:-${TEMPERATURE:-0.6}}"
+export GENERATE_TEMPERATURE="${GENERATE_TEMPERATURE:-${TEMPERATURE:-0.6}}"
+export REVISE_TEMPERATURE="${REVISE_TEMPERATURE:-${TEMPERATURE:-0.6}}"
+export SELECT_TEMPERATURE="${SELECT_TEMPERATURE:-${TEMPERATURE:-0.6}}"
 export MAX_TOKENS="${MAX_TOKENS:-16384}"
 # 模型请求超时（秒）；覆盖探索、SQL生成、修订和选择阶段。
 export MODEL_TIMEOUT="${MODEL_TIMEOUT:-1800}"
 
 # 嵌入服务配置（独立vLLM服务；GPU在服务启动时指定）
-export EMBEDDING_BASE_URL="${EMBEDDING_BASE_URL:-http://127.0.0.1:9001/v1}"
+export EMBEDDING_BASE_URL="${EMBEDDING_BASE_URL:-http://127.0.0.1:9000/v1}"
 export EMBEDDING_API_KEY="${EMBEDDING_API_KEY:-EMPTY}"
 # 与vLLM的 --served-model-name 一致。
 export EMBEDDING_MODEL="${EMBEDDING_MODEL:-bge-m3}"
@@ -26,7 +30,8 @@ export EMBEDDING_DIMENSIONS="${EMBEDDING_DIMENSIONS:-0}"
 export EMBEDDING_MAX_TOKENS="${EMBEDDING_MAX_TOKENS:-8192}"
 
 export DATASET="bird"
-export SPLIT="${SPLIT:-dev}"
+# export SPLIT="${SPLIT:-dev}"
+export SPLIT="${SPLIT:-MINIDEV}"
 export DATA_ROOT="${DATA_ROOT:-../datasets/bird}"
 # 起始运行ID；多次运行时递增末尾数字，相同ID用于续跑。
 RUN_ID="${RUN_ID:-run1}"

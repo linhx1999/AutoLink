@@ -150,7 +150,7 @@ OUTPUT_DIR=outputs/spider2_smoke bash run_spider2_lite_sqlite_qwen3_8b.sh --limi
 
 默认执行 `--stage all`（完整实验及自动续跑）；`validate` 仅检查数据；`prepare` 生成在线数据、元数据和字段文档，不下载模型、不建向量索引；`link` 继续构建索引并完成Schema探索；`sql` 要求同输出目录已有完整link阶段，再执行候选生成、执行、修订与投票；`all` 执行完整流程。`--check`、`--prepare-only` 分别等价于 validate、prepare；不再提供 `--run` 开关。默认 `limit=0`，即读取当前数据集全量样本，脚本不固定135或500。需要小样本时显式传 `--limit 2`（也兼容环境变量 `LIMIT`），并指定独立 `OUTPUT_DIR`；不能把子集结果视为全量。
 
-独立脚本配置模型、接口、数据路径和输出目录，并显式列出 `TEMPERATURE=0`、`MAX_TOKENS=16384`；其他参数使用统一入口默认值，可按需通过环境变量覆盖。脚本使用现有环境，不创建或安装环境。Qwen3-8B端点默认为 `http://127.0.0.1:8000/v1`；模型需另行启动。实验脚本恢复原版初始检索数量：BIRD 和 Spider2 均为 `TOP_N=100`，均支持环境变量覆盖。直接调用Python入口时 `TOP_N` 默认仍为100。补充检索数量固定为3。其余默认5候选、16384输出token，不显式设置随机种子；SQL候选生成、探索、修订和选择阶段统一使用 `TEMPERATURE=0`；客户端不再传入 `top_p` 或采样 `top_k`，保留默认思考；原探索10轮、修订5轮。嵌入通过独立vLLM服务调用，文档和查询共用 `EMBEDDING_*` 配置，GPU由服务端指定。统一入口按阶段调度原生函数以明确传播阶段错误，不改变提示词或新增模式修复算法。
+独立脚本配置模型、接口、数据路径和输出目录，并设置分阶段温度和 `MAX_TOKENS=16384`；其他参数使用统一入口默认值，可按需通过环境变量覆盖。脚本使用现有环境，不创建或安装环境。Qwen3-8B端点默认为 `http://127.0.0.1:8000/v1`；模型需另行启动。实验脚本恢复原版初始检索数量：BIRD 和 Spider2 均为 `TOP_N=100`，均支持环境变量覆盖。直接调用Python入口时 `TOP_N` 默认仍为100。补充检索数量固定为3。其余默认5候选、16384输出token，不显式设置随机种子；探索、生成、修订、选择分别使用 `EXPLORE_TEMPERATURE=0`、`GENERATE_TEMPERATURE=0.6`、`REVISE_TEMPERATURE=0`、`SELECT_TEMPERATURE=0`。显式设置旧变量 `TEMPERATURE` 会覆盖未单独指定的阶段默认值；客户端不再传入 `top_p` 或采样 `top_k`，保留默认思考；原探索10轮、修订5轮。嵌入通过独立vLLM服务调用，文档和查询共用 `EMBEDDING_*` 配置，GPU由服务端指定。统一入口按阶段调度原生函数以明确传播阶段错误，不改变提示词或新增模式修复算法。
 
 嵌入服务配置集中在 `exp_bird.sh`，默认使用本地 BGE-M3 服务：
 
@@ -183,7 +183,7 @@ DATA_ROOT=/home/linhx/workspace/kouan/SAGE-SQL/datasets/bird \
     RUN_ID=run1 bash exp_bird.sh --split dev
 ```
 
-BIRD 脚本默认 `WORKERS=16`，可用 `WORKERS=4 bash exp_bird.sh` 或 `bash exp_bird.sh --workers 4` 调整，`--workers 1` 恢复串行；直接调用 Python 入口默认仍为1。并发作用于探索、SQL生成、执行、修订和选择阶段的不同题目；阶段之间和同题候选之间保持顺序。文档构建、嵌入、初始检索和合并/导出仍顺序执行，原探索/修订中的SQLite锁保留。请求预算预留与共享选择日志受锁保护；基础设施错误停止提交新任务，等待已开始任务结束后向外传播，完成单元仍可续跑。`WORKERS` 记录在实验清单中，改变并发数时需使用新的运行ID或输出目录。
+BIRD 脚本的并发度由 `WORKERS` 控制，可用 `WORKERS=4 bash exp_bird.sh` 或 `bash exp_bird.sh --workers 4` 调整，`--workers 1` 恢复串行；直接调用 Python 入口默认仍为1。并发作用于探索、SQL生成、执行、修订和选择阶段的不同题目；阶段依次执行。生成与执行阶段将全部（题目、候选编号）放入同一队列，修订队列仅包含执行报错的候选。控制台进度条显示已处理数、总数、耗时、预计剩余时间及完成、超限、跳过计数；探索和选择按题计数，生成、执行、修订按候选计数。文档构建、嵌入、初始检索和合并/导出仍顺序执行，原探索/修订中的SQLite锁保留。请求预算预留与共享选择日志受锁保护；基础设施错误停止提交新任务，等待已开始任务结束后向外传播，完成单元仍可续跑。`WORKERS` 记录在实验清单中，改变并发数时需使用新的运行ID或输出目录。
 
 BIRD 脚本通过显式 `RUN_ID` 区分实验，默认 `run1`，输出目录为 `outputs/autolink_bird_<split>_<模型>_<RUN_ID>/`。每次新实验修改脚本中的默认ID或通过环境变量指定不同ID；相同ID会复用检查点续跑。模型名中的 `/` 会替换为 `_`。需要续跑或分阶段执行时，指定相同的 `RUN_ID`、`OUTPUT_DIR` 或 `--output_dir`，并保持模型、参数及输入一致；命令行 `--output_dir` 优先于环境变量。
 
@@ -246,7 +246,7 @@ LLM的 `candidate_index` 从0开始，`call_index` 从1开始；探索/修订的
 python summarize_metrics.py outputs/<运行目录>
 ```
 
-执行与探索、修订均通过数据层的只读SQLite连接，仅可访问登记数据库；执行/修订有SQL时间限制，探索不设置查询时限。保留原方法把空结果交给修订的行为。模型输出超限（`finish_reason="length"`）在单题处理最外层捕获：记录 `errors/<instance_id>.json`，该题最终 SQL 置空，跳过该题剩余处理并继续其他题；续跑也跳过这些已标记题。错误记录关联 `calls/` 中的响应、时间和 token 用量。网络/服务异常或非超限的无最终内容仍中止阶段，保留续跑能力，不把未处理尾部评分为错误。未将模型响应当作正确性标签，当前入口不自动计算EX。
+执行与探索、修订均通过数据层的只读SQLite连接，仅可访问登记数据库；执行/修订有SQL时间限制，探索不设置查询时限。保留原方法把空结果交给修订的行为。模型输出超限时，探索阶段记录题目失败；SQL 生成或修订阶段按候选记录到 `errors/candidates/<instance_id>/<cid>.json`，续跑跳过该候选，其他候选仍参与生成、执行和选择。若所有候选均超限，记录题目失败并导出空 SQL。选择阶段若两两比较超限，该场弃票，按已有票数选择，平票沿用原有顺序。超限调用的响应和用量保存在 `calls/`。网络/服务异常或非超限的无最终内容仍中止阶段，保留续跑能力，不把未处理尾部评分为错误。未将模型响应当作正确性标签，当前入口不自动计算EX。
 
 
 验证：
@@ -303,7 +303,7 @@ Spider2直接使用官方 `evaluate.py --mode sql`，不再提供额外评估包
 两份推理脚本显式配置：
 
 ```bash
-export TEMPERATURE="${TEMPERATURE:-0}"       # SQL生成、探索、修订和选择
+export GENERATE_TEMPERATURE="${GENERATE_TEMPERATURE:-0.6}"  # 其他阶段默认 0
 export MAX_TOKENS="${MAX_TOKENS:-16384}"        # 单次生成上限，包含思考token
 export EMBEDDING_BASE_URL="${EMBEDDING_BASE_URL:-http://127.0.0.1:8001/v1}"
 ```

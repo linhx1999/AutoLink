@@ -14,13 +14,17 @@ import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextvars import copy_context
+from itertools import product
 from pathlib import Path
 from types import SimpleNamespace
+
+from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "run"))
 import data_layer as data
 import telemetry
+from model_errors import ExperimentFailure, OutputTokenLimit
 
 LINK_STAGES = [
     "embeddings",
@@ -39,7 +43,10 @@ ENV_DEFAULTS = {
     "MAX_TOKENS": "16384",
     "MODEL_TIMEOUT": "1800",
     "SQL_TIMEOUT": "600",
-    "TEMPERATURE": "0",
+    "EXPLORE_TEMPERATURE": "0",
+    "GENERATE_TEMPERATURE": "0.6",
+    "REVISE_TEMPERATURE": "0",
+    "SELECT_TEMPERATURE": "0",
     "EMBEDDING_MODEL": "BAAI/bge-large-en-v1.5",
     "EMBEDDING_BASE_URL": "http://127.0.0.1:8001/v1",
     "EMBEDDING_DIMENSIONS": "0",
@@ -47,31 +54,23 @@ ENV_DEFAULTS = {
 }
 
 
-class ExperimentFailure(BaseException):
-    """Abort native unlimited retries; do not score an incomplete stage."""
-
-
-class OutputTokenLimit(ExperimentFailure):
-    """Terminal per-question generation failure, not an infrastructure outage."""
-
-    def __init__(self, call_record: Path, max_tokens: int, usage: dict | None):
-        super().__init__("Model output reached max_tokens")
-        self.call_record = str(call_record.resolve())
-        self.max_tokens = max_tokens
-        self.usage = usage
-
-
 def question_error(output: Path, instance_id: str) -> dict | None:
     path = output / "errors" / (instance_id + ".json")
     return data.read_json(path) if path.exists() else None
+
+
+def candidate_error_path(output: Path, key: str) -> Path:
+    return output / "errors" / "candidates" / (key + ".json")
 
 
 def mark_output_limit(
     output: Path, stage: str, key: str, error: OutputTokenLimit
 ) -> None:
     instance_id = key.split("/", 1)[0]
+    candidate = stage in ("generate", "revise")
+    path = candidate_error_path(output, key) if candidate else output / "errors" / (instance_id + ".json")
     data.write_json(
-        output / "errors" / (instance_id + ".json"),
+        path,
         {
             "status": "error",
             "error_type": "output_token_limit",
@@ -81,7 +80,7 @@ def mark_output_limit(
             "call_record": error.call_record,
         },
     )
-    print("Question failed:", instance_id, "output_token_limit; continuing", flush=True)
+    print("Candidate failed:" if candidate else "Question failed:", key, "output_token_limit; continuing", flush=True)
 
 
 class ModelClient:
@@ -106,13 +105,15 @@ class ModelClient:
         )
         self.output = output
         self.stage = stage
+        key = f"{stage.upper()}_TEMPERATURE"
+        self.temperature = float(os.environ.get(key, os.environ.get("TEMPERATURE", ENV_DEFAULTS[key])))
         self.count = 0
         self.chat = SimpleNamespace(completions=self)
 
     def create(self, **request):
         request.update(
             max_tokens=int(os.environ["MAX_TOKENS"]),
-            temperature=float(os.environ["TEMPERATURE"]),
+            temperature=self.temperature,
         )
         folder = self.output / "calls"
         folder.mkdir(exist_ok=True)
@@ -156,7 +157,9 @@ class ModelClient:
 
 def run_unit(output, stage, key, operation, required, outcomes=None):
     with telemetry.unit_scope(output, stage, key) as attempt:
-        attempt.data["outcome"] = _run_unit(output, stage, key, operation, required, outcomes)
+        outcome = _run_unit(output, stage, key, operation, required, outcomes)
+        attempt.data["outcome"] = outcome
+        return outcome
 
 
 def _run_unit(
@@ -170,6 +173,8 @@ def _run_unit(
     """Resume only fully persisted units; replay a partially written unit."""
     if question_error(output, key.split("/", 1)[0]):
         print("Resume: skip failed question", key, flush=True)
+        return "skipped_terminal"
+    if stage in ("generate", "execute", "revise") and candidate_error_path(output, key).is_file():
         return "skipped_terminal"
     outcomes = outcomes or []
     checkpoint = (
@@ -218,13 +223,13 @@ def _run_unit(
     return "complete"
 
 
-def run_parallel(items, operation, workers: int) -> None:
+def parallel_results(items, operation, workers: int):
     """Bound in-flight work; stop submitting after failure and propagate it."""
     if workers < 1:
         raise ValueError("workers must be positive")
     if workers == 1:
         for item in items:
-            operation(item)
+            yield operation(item)
         return
     iterator = iter(items)
     executor = ThreadPoolExecutor(max_workers=workers)
@@ -237,7 +242,7 @@ def run_parallel(items, operation, workers: int) -> None:
         while pending:
             done, pending = wait(pending, return_when=FIRST_COMPLETED)
             for future in done:
-                future.result()
+                yield future.result()
             for _ in done:
                 try:
                     item = next(iterator)
@@ -246,6 +251,24 @@ def run_parallel(items, operation, workers: int) -> None:
                 pending.add(executor.submit(copy_context().run, operation, item))
     finally:
         executor.shutdown(wait=True, cancel_futures=True)
+
+
+def run_parallel(items, operation, workers: int, stage: str, unit: str) -> None:
+    # The parent passes a separate console descriptor while stdout/stderr go to the stage log.
+    fd = os.environ.get("AUTOLINK_PROGRESS_FD")
+    stream = os.fdopen(int(fd), "w", closefd=False) if fd else sys.stderr
+    counts = {"完成": 0, "超限": 0, "跳过": 0}
+    with tqdm(total=len(items), desc=stage, unit=unit, file=stream, dynamic_ncols=True) as bar:
+        bar.set_postfix(counts, refresh=False)
+        for outcome in parallel_results(items, operation, workers):
+            if outcome == "output_limit":
+                counts["超限"] += 1
+            elif outcome.startswith("skipped"):
+                counts["跳过"] += 1
+            else:
+                counts["完成"] += 1
+            bar.set_postfix(counts, refresh=False)
+            bar.update()
 
 
 def run_stage(stage: str, output: Path) -> None:
@@ -336,8 +359,8 @@ def run_stage(stage: str, output: Path) -> None:
             complete_schema.restore_instance_state(iid, log)
             status = data.read_json(Path(log, "status", iid + ".json"))
             if status["is_complete"]:
-                return
-            run_unit(
+                return "skipped_complete"
+            return run_unit(
                 output,
                 stage,
                 iid,
@@ -355,7 +378,7 @@ def run_stage(stage: str, output: Path) -> None:
                 ],
             )
 
-        run_parallel(questions, explore_one, workers)
+        run_parallel(questions, explore_one, workers, stage, "题")
     elif stage == "merge":
         import postprocess
 
@@ -366,28 +389,29 @@ def run_stage(stage: str, output: Path) -> None:
         client = ModelClient(output, stage)
         module.OpenAI = lambda **kwargs: client
         generator = module.SQLGenerator()
-        for cid in range(count):
-            def generate_one(iid):
-                run_unit(
-                    output,
-                    stage,
-                    f"{iid}/{cid}",
-                    lambda: module.run_task(
-                        generator,
-                        questions,
-                        f"{log}/final_schema_prompts",
-                        log,
-                        task,
-                        iid,
-                        cid,
-                    ),
-                    [
-                        Path(log, "sql_gen", f"{task}_{kind}_{cid}", iid + ".txt")
-                        for kind in ("sql_generation", "reasoning")
-                    ],
-                )
+        def generate_one(item):
+            cid, iid = item
+            return run_unit(
+                output,
+                stage,
+                f"{iid}/{cid}",
+                lambda: module.run_task(
+                    generator,
+                    questions,
+                    f"{log}/final_schema_prompts",
+                    log,
+                    task,
+                    iid,
+                    cid,
+                ),
+                [
+                    Path(log, "sql_gen", f"{task}_{kind}_{cid}", iid + ".txt")
+                    for kind in ("sql_generation", "reasoning")
+                ],
+            )
 
-            run_parallel(questions, generate_one, workers)
+        tasks = list(product(range(count), questions))
+        run_parallel(tasks, generate_one, workers, stage, "候选")
         for cid in range(count):
             if Path(log, "sql_gen", f"{task}_sql_generation_{cid}").is_dir():
                 module.sql_clean(log, task, cid)
@@ -401,67 +425,69 @@ def run_stage(stage: str, output: Path) -> None:
             ):
                 Path(log, "sql_gen", folder).mkdir(parents=True, exist_ok=True)
 
-            def execute_one(iid):
-                item = questions[iid]
-                sql = Path(
-                    log, "sql_gen", f"{task}_sql_{cid}", iid + ".sql"
-                ).read_text()
-                run_unit(
-                    output,
-                    stage,
-                    f"{iid}/{cid}",
-                    lambda: module.execute(sql, iid, item["db_name"], cid, log, task),
-                    [],
-                    [
-                        Path(
-                            log,
-                            "sql_gen",
-                            f"{task}_execution_{kind}_{cid}",
-                            iid + suffix,
-                        )
-                        for kind, suffix in [("error", ".txt"), ("result", ".csv")]
-                    ],
-                )
+        def execute_one(item):
+            cid, iid = item
+            question = questions[iid]
+            sql = Path(
+                log, "sql_gen", f"{task}_sql_{cid}", iid + ".sql"
+            )
+            return run_unit(
+                output,
+                stage,
+                f"{iid}/{cid}",
+                lambda: module.execute(sql.read_text(), iid, question["db_name"], cid, log, task),
+                [],
+                [
+                    Path(
+                        log,
+                        "sql_gen",
+                        f"{task}_execution_{kind}_{cid}",
+                        iid + suffix,
+                    )
+                    for kind, suffix in [("error", ".txt"), ("result", ".csv")]
+                ],
+            )
 
-            run_parallel(questions, execute_one, workers)
+        tasks = list(product(range(count), questions))
+        run_parallel(tasks, execute_one, workers, stage, "候选")
     elif stage == "revise":
         import sql_revise as module
 
         client = ModelClient(output, stage)
         module.OpenAI = lambda **kwargs: client
         reviser = module.SQLReviser()
-        for cid in range(count):
-            def revise_one(iid):
-                if not Path(
-                    log, "sql_gen", f"{task}_execution_error_{cid}", iid + ".txt"
-                ).exists():
-                    return
-                run_unit(
-                    output,
-                    stage,
-                    f"{iid}/{cid}",
-                    lambda: module.run_task(
-                        reviser,
-                        questions,
-                        f"{log}/final_schema_prompts",
-                        log,
-                        task,
-                        iid,
-                        cid,
+        def revise_one(item):
+            cid, iid = item
+            return run_unit(
+                output,
+                stage,
+                f"{iid}/{cid}",
+                lambda: module.run_task(
+                    reviser,
+                    questions,
+                    f"{log}/final_schema_prompts",
+                    log,
+                    task,
+                    iid,
+                    cid,
+                ),
+                [
+                    Path(log, "sql_revise", f"{task}_sql_{cid}", iid + ".sql"),
+                    Path(
+                        log, "sql_revise", f"{task}_messages_{cid}", iid + ".json"
                     ),
-                    [
-                        Path(log, "sql_revise", f"{task}_sql_{cid}", iid + ".sql"),
-                        Path(
-                            log, "sql_revise", f"{task}_messages_{cid}", iid + ".json"
-                        ),
-                    ],
-                    [
-                        Path(log, "sql_revise", f"{task}_sql_{cid}", iid + suffix)
-                        for suffix in (".csv", ".txt")
-                    ],
-                )
+                ],
+                [
+                    Path(log, "sql_revise", f"{task}_sql_{cid}", iid + suffix)
+                    for suffix in (".csv", ".txt")
+                ],
+            )
 
-            run_parallel(questions, revise_one, workers)
+        tasks = [
+            (cid, iid) for cid, iid in product(range(count), questions)
+            if Path(log, "sql_gen", f"{task}_execution_error_{cid}", iid + ".txt").is_file()
+        ]
+        run_parallel(tasks, revise_one, workers, stage, "候选")
     elif stage == "select":
         import sql_selection as module
 
@@ -478,11 +504,20 @@ def run_stage(stage: str, output: Path) -> None:
         selection_lock = threading.Lock()
 
         def select_one(iid):
-            run_unit(
+            eligible = [cid for cid in range(count)
+                        if not candidate_error_path(output, f"{iid}/{cid}").is_file()]
+            if not eligible:
+                data.write_json(output / "errors" / (iid + ".json"), {
+                    "status": "error", "error_type": "output_token_limit",
+                    "instance_id": iid, "stage": "select", "unit": iid,
+                    "reason": "all_candidates_output_limit",
+                })
+                return "output_limit"
+            return run_unit(
                 output,
                 stage,
                 iid,
-                lambda: module.process_instance(iid + ".txt", args, selection_lock),
+                lambda: module.process_instance(iid + ".txt", args, selection_lock, candidate_ids=eligible),
                 [Path(log, "sql_selection/final", iid, "selected.sql")],
                 [
                     Path(log, "sql_selection/final", iid, filename)
@@ -490,7 +525,7 @@ def run_stage(stage: str, output: Path) -> None:
                 ],
             )
 
-        run_parallel(questions, select_one, workers)
+        run_parallel(questions, select_one, workers, stage, "题")
     elif stage == "export":
         rows = []
         for identity in data.read_json(output / "identity.json"):
@@ -564,7 +599,7 @@ def main() -> None:
         "--dataset", choices=data.SUPPORTED_DATASETS, default=os.environ.get("DATASET")
     )
     parser.add_argument("--workers", type=int, default=int(os.environ.get("WORKERS", "1")))
-    parser.add_argument("--split", choices=("minidev", "dev"), default=os.environ.get("SPLIT"))
+    parser.add_argument("--split", choices=("MINIDEV", "minidev", "dev"), default=os.environ.get("SPLIT"))
     parser.add_argument("--data_root", type=Path, default=os.environ.get("DATA_ROOT"))
     parser.add_argument(
         "--database_root", type=Path, default=os.environ.get("DATABASE_ROOT")
@@ -611,7 +646,11 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     with (output / "experiment.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        settings = {k: os.environ.get(k, v) for k, v in ENV_DEFAULTS.items()}
+        settings = {}
+        for key, default in ENV_DEFAULTS.items():
+            if key.endswith("_TEMPERATURE"):
+                default = os.environ.get("TEMPERATURE", default)
+            settings[key] = os.environ.get(key, default)
         settings["WORKERS"] = str(args.workers)
         if int(settings["MAX_TOKENS"]) <= 0:
             raise ValueError("MAX_TOKENS must be positive")
@@ -690,7 +729,8 @@ def main() -> None:
                                 continue
                             env["AUTOLINK_STAGE"] = stage
                             env["AUTOLINK_STAGE_ATTEMPT_ID"] = stage_record.id
-                            with (output / (stage + ".log")).open("a") as log:
+                            with (output / (stage + ".log")).open("a") as log, os.fdopen(os.dup(sys.stderr.fileno()), "w") as console:
+                                env["AUTOLINK_PROGRESS_FD"] = str(console.fileno())
                                 subprocess.run(
                                     [
                                         sys.executable,
@@ -700,6 +740,7 @@ def main() -> None:
                                     ],
                                     env=env,
                                     cwd=output,
+                                    pass_fds=(console.fileno(),),
                                     stdout=log,
                                     stderr=subprocess.STDOUT,
                                     check=True,
